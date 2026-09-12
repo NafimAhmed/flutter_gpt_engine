@@ -1,4 +1,4 @@
-# Flutter_GPT_Engine_Engine
+# Flutter_GPT_Engine
 
 `Flutter_GPT_Engine_Engine` is a **headless local GGUF chat engine for Flutter**.
 
