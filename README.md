@@ -1,6 +1,6 @@
 # Flutter_GPT_Engine
 
-`Flutter_GPT_Engine_Engine` is a **headless local GGUF chat engine for Flutter**.
+`Flutter_GPT_Engine` is a **headless local GGUF chat engine for Flutter**.
 
 It does **not** provide any chat screen, bubble, text field, app bar, theme, or other UI.
 
