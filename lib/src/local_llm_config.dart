@@ -1,6 +1,6 @@
 class LocalLlmConfig {
   const LocalLlmConfig({
-    this.systemPrompt = 'You are a helpful offline AI assistant.',
+    this.systemPrompt = 'You are a helpful AI assistant.',
     this.threads = 4,
     this.contextSize = 4096,
     this.gpuLayers,
