@@ -724,3 +724,11 @@ See the `LICENSE` file included with this package.
 If this package helps your project, consider giving the repository a star and sharing it with other Flutter developers.
 
 **Build your UI. Choose your model. Run AI locally.**
+---
+
+## 👨‍💻 Developer
+
+**Nafim Ahmed**
+
+🌐 **Portfolio:** [https://nafimahmed.github.io](https://nafimahmed.github.io)  
+📧 **Email:** [recentnafimahmed@gmail.com](mailto:recentnafimahmed@gmail.com)
