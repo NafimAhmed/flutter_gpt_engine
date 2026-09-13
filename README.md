@@ -106,7 +106,7 @@ Add the package to your Flutter project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.3
+  flutter_gpt_engine: ^0.0.4
 ```
 
 Then run:

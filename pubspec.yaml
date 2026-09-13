@@ -1,6 +1,6 @@
 name: flutter_gpt_engine
 description: Flutter_GPT_Engine - headless/offline GGUF chat engine for Flutter. UI is fully controlled by the host app.
-version: 0.0.3
+version: 0.0.4
 homepage: https://github.com/NafimAhmed/flutter_gpt_engine
 
 environment:
