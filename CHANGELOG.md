@@ -1,4 +1,8 @@
 
+## 0.0.5
+
+- Web search added.
+
 ## 0.0.4
 
 - Web search added.
