@@ -11,6 +11,39 @@ class WebSearchConfig {
     this.useGoogle = true,
     this.directUrlFetch = true,
     this.useOfficialSourceHints = true,
+    this.fallbackOnLocalFailure = false,
+    this.minLocalAnswerCharacters = 1,
+    this.localFailurePhrases = const <String>[
+      "i don't know",
+      'i do not know',
+      "i'm not sure",
+      'i am not sure',
+      'i cannot answer',
+      "i can't answer",
+      "i don't have enough information",
+      'i do not have enough information',
+      "i don't have information",
+      "i don't have access",
+      'i cannot verify',
+      'unable to answer',
+      'unable to determine',
+      'insufficient information',
+      'not enough information',
+      'ami jani na',
+      'ami sure na',
+      'amar kache information nei',
+      'amar kache information nai',
+      'information pawa jacche na',
+      'bolte parchi na',
+      'nischit na',
+      'আমি জানি না',
+      'আমি নিশ্চিত নই',
+      'আমি বলতে পারছি না',
+      'আমার কাছে তথ্য নেই',
+      'পর্যাপ্ত তথ্য নেই',
+      'তথ্য পাওয়া যাচ্ছে না',
+      'তথ্য পাওয়া যাচ্ছে না',
+    ],
     this.maxResults = 3,
     this.maxPageCharacters = 5000,
     this.maxTotalContextCharacters = 9000,
@@ -56,6 +89,19 @@ class WebSearchConfig {
   final bool directUrlFetch;
   final bool useOfficialSourceHints;
 
+  /// If true, smartGenerate() first lets the local model try non-current
+  /// questions. When that completed answer clearly says it cannot answer,
+  /// the package discards the local candidate, searches the public web, and
+  /// generates a new grounded answer.
+  ///
+  /// This is false by default to preserve the low-latency streaming behavior
+  /// of existing apps. Enabling it buffers the local candidate until it has
+  /// been validated.
+  final bool fallbackOnLocalFailure;
+
+  final int minLocalAnswerCharacters;
+  final List<String> localFailurePhrases;
+
   final int maxResults;
   final int maxPageCharacters;
   final int maxTotalContextCharacters;
@@ -76,6 +122,9 @@ class WebSearchConfig {
     bool? useGoogle,
     bool? directUrlFetch,
     bool? useOfficialSourceHints,
+    bool? fallbackOnLocalFailure,
+    int? minLocalAnswerCharacters,
+    List<String>? localFailurePhrases,
     int? maxResults,
     int? maxPageCharacters,
     int? maxTotalContextCharacters,
@@ -91,6 +140,11 @@ class WebSearchConfig {
       directUrlFetch: directUrlFetch ?? this.directUrlFetch,
       useOfficialSourceHints:
           useOfficialSourceHints ?? this.useOfficialSourceHints,
+      fallbackOnLocalFailure:
+          fallbackOnLocalFailure ?? this.fallbackOnLocalFailure,
+      minLocalAnswerCharacters:
+          minLocalAnswerCharacters ?? this.minLocalAnswerCharacters,
+      localFailurePhrases: localFailurePhrases ?? this.localFailurePhrases,
       maxResults: maxResults ?? this.maxResults,
       maxPageCharacters: maxPageCharacters ?? this.maxPageCharacters,
       maxTotalContextCharacters:

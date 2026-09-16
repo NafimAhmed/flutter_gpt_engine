@@ -10,6 +10,7 @@ class LocalLlmConfig {
     this.repeatPenalty = 1.15,
     this.maxTokens = 384,
     this.maxHistoryMessages = 8,
+    this.showThinking = false,
   });
 
   final String systemPrompt;
@@ -30,6 +31,15 @@ class LocalLlmConfig {
   /// Number of previous user/assistant messages added to each generation.
   final int maxHistoryMessages;
 
+  /// When true, model output inside <think>...</think> or
+  /// <analysis>...</analysis> is exposed through LocalLlmClient.thinkingText
+  /// and LocalLlmClient.generationEvents while it is being generated.
+  ///
+  /// Thinking is never stored in chat history. As soon as final-answer output
+  /// starts, thinkingText is cleared so host UIs can automatically replace the
+  /// thinking panel with the final answer.
+  final bool showThinking;
+
   LocalLlmConfig copyWith({
     String? systemPrompt,
     int? threads,
@@ -42,6 +52,7 @@ class LocalLlmConfig {
     double? repeatPenalty,
     int? maxTokens,
     int? maxHistoryMessages,
+    bool? showThinking,
   }) {
     return LocalLlmConfig(
       systemPrompt: systemPrompt ?? this.systemPrompt,
@@ -54,6 +65,7 @@ class LocalLlmConfig {
       repeatPenalty: repeatPenalty ?? this.repeatPenalty,
       maxTokens: maxTokens ?? this.maxTokens,
       maxHistoryMessages: maxHistoryMessages ?? this.maxHistoryMessages,
+      showThinking: showThinking ?? this.showThinking,
     );
   }
 }

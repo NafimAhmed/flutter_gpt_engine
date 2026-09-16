@@ -5,7 +5,7 @@
 
 `Flutter_GPT_Engine` is a lightweight, **headless GGUF inference engine for Flutter** built for developers who want to run local large language models directly on Android devices.
 
-It handles the difficult parts of local model execution — model selection, GGUF validation, GPU detection, CPU fallback, streaming generation, conversation history, and model lifecycle — while leaving **100% of the UI in your hands**.
+It handles the difficult parts of local model execution — model selection, GGUF validation, GPU detection, CPU fallback, streaming generation, conversation history, model lifecycle, optional web retrieval, realtime model-emitted thinking, and optional device context — while leaving **100% of the UI in your hands**.
 
 No chat screen.  
 No predefined message bubbles.  
@@ -68,6 +68,20 @@ The package is designed as an **engine layer**, not a UI framework.
 - Official-source hints for current technical information
 - Access to retrieved sources through `lastWebSearchResult`
 - Standalone web retrieval with `searchWeb()`
+- Realtime model-emitted thinking support through `generationEvents`
+- Automatic removal of `<think>` / `<analysis>` content from final answers
+- `thinkingText`, `answerText`, and `isThinking` state
+- Automatic web fallback when the local model cannot answer
+- Optional `DeviceContextConfig`
+- `DeviceContextMode.auto` and `DeviceContextMode.always`
+- Current device date, time, timezone, and locale context
+- Device / OS / app information
+- Battery, network, storage, memory, and screen information
+- Latitude, longitude, accuracy, altitude, speed, and heading
+- Reverse-geocoded address / city information
+- Optional accelerometer, gyroscope, magnetometer, and barometer context
+- Optional current weather using Open-Meteo
+- Device context caching and explicit location-permission helpers
 
 ---
 
@@ -116,7 +130,7 @@ Add the package to your Flutter project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.5
+  flutter_gpt_engine: ^0.0.6
 ```
 
 Then run:
@@ -267,11 +281,11 @@ Web search is **optional**. Local GGUF inference still works without internet ac
 
 To enable web search, follow these steps.
 
-### 1. Use `flutter_gpt_engine: ^0.0.5`
+### 1. Use `flutter_gpt_engine: ^0.0.6`
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.5
+  flutter_gpt_engine: ^0.0.6
 ```
 
 Then run:
@@ -708,6 +722,388 @@ The LLM still runs locally. The internet is used only for retrieving public info
 
 ---
 
+## 🧠 Realtime Thinking — New in v0.0.6
+
+`Flutter_GPT_Engine` can now separate model-emitted thinking from the final answer.
+
+This is designed for compatible GGUF models that generate reasoning inside tags such as:
+
+```text
+<think>
+...
+</think>
+```
+
+or:
+
+```text
+<analysis>
+...
+</analysis>
+```
+
+The normal `Stream<String>` now emits **final-answer text only**. Thinking can be observed separately through `generationEvents`, `thinkingText`, and `isThinking`.
+
+### Enable thinking
+
+Enable it globally:
+
+```dart
+final gpt = LocalLlmClient(
+  config: const LocalLlmConfig(
+    showThinking: true,
+  ),
+);
+```
+
+Or enable it for one request:
+
+```dart
+await for (final token in gpt.smartGenerate(
+  'Explain this problem step by step.',
+  showThinking: true,
+)) {
+  print(token); // final-answer tokens only
+}
+```
+
+### Listen to realtime generation events
+
+```dart
+gpt.generationEvents.listen((event) {
+  if (event.isThinking) {
+    print('THINKING: ${event.text}');
+  }
+
+  if (event.isSearchingWeb) {
+    print('SEARCHING WEB...');
+  }
+
+  if (event.isAnswer) {
+    print('ANSWER: ${event.text}');
+  }
+
+  if (event.isDone) {
+    print('DONE: ${event.text}');
+  }
+});
+```
+
+`event.text` contains the cumulative text for the current phase.
+
+`event.delta` contains only the newly emitted text for that event.
+
+Available phases:
+
+```dart
+LocalLlmGenerationPhase.thinking
+LocalLlmGenerationPhase.searchingWeb
+LocalLlmGenerationPhase.answer
+LocalLlmGenerationPhase.done
+```
+
+The client also exposes:
+
+```dart
+gpt.isThinking
+gpt.thinkingText
+gpt.answerText
+```
+
+When the final answer begins, the engine clears the visible thinking state so your UI can replace the thinking view with the final answer.
+
+Thinking text is not stored as the normal assistant answer in conversation history.
+
+---
+
+## 🌐 Automatic Web Fallback — New in v0.0.6
+
+`smartGenerate()` can optionally try the local model first and automatically search the public web if the completed local answer clearly indicates that it cannot answer.
+
+Enable it in `WebSearchConfig`:
+
+```dart
+final gpt = LocalLlmClient(
+  webSearchConfig: const WebSearchConfig(
+    enabled: true,
+    fallbackOnLocalFailure: true,
+  ),
+);
+```
+
+Or override it for a single request:
+
+```dart
+final answer = await gpt.smartGenerateText(
+  'Tell me about this recently released tool.',
+  searchMode: WebSearchMode.auto,
+  fallbackOnLocalFailure: true,
+);
+```
+
+The flow is:
+
+```text
+User Question
+    ↓
+Try Local GGUF
+    ↓
+Can answer?
+  ┌───┴────┐
+ Yes      No
+  │        │
+  │        ▼
+  │    Web Search
+  │        │
+  │        ▼
+  │   Fresh Context
+  │        │
+  └────┬───┘
+       ▼
+ Local GGUF Model
+       ↓
+ Final Answer
+```
+
+When fallback checking is enabled, the first local candidate is buffered. If it clearly fails, that failed candidate is discarded before the web-grounded answer is generated.
+
+> `fallbackOnLocalFailure` is `false` by default so existing applications keep their previous low-latency streaming behavior unless they explicitly enable this feature.
+
+You can also customize failure detection:
+
+```dart
+webSearchConfig: const WebSearchConfig(
+  enabled: true,
+  fallbackOnLocalFailure: true,
+  minLocalAnswerCharacters: 20,
+  localFailurePhrases: <String>[
+    "i don't know",
+    "i'm not sure",
+    'ami jani na',
+    'আমি জানি না',
+  ],
+),
+```
+
+---
+
+## 📱 Device Context — New in v0.0.6
+
+Device Context lets the local GGUF model use optional live information from the device.
+
+Supported context can include:
+
+- Current date and time
+- Timezone
+- Locale
+- Device model / manufacturer
+- Android / OS information
+- App version and build number
+- Battery percentage and charging state
+- Battery saver state
+- Network connectivity
+- Memory information
+- Storage information
+- Screen information
+- Latitude and longitude
+- Location accuracy
+- Altitude
+- Speed
+- Heading
+- Reverse-geocoded address / city
+- Accelerometer
+- Gyroscope
+- Magnetometer
+- Barometer, when available
+- Current weather through Open-Meteo
+
+Device Context is **disabled by default**.
+
+### Enable Device Context
+
+```dart
+final gpt = LocalLlmClient(
+  deviceContextConfig: const DeviceContextConfig(
+    enabled: true,
+    mode: DeviceContextMode.auto,
+
+    includeDateTime: true,
+    includeTimezone: true,
+    includeLocale: true,
+
+    includeDeviceInfo: true,
+    includeOsInfo: true,
+    includeAppInfo: true,
+
+    includeBattery: true,
+    includeNetwork: true,
+    includeStorage: true,
+    includeMemory: true,
+    includeScreenInfo: true,
+
+    includeLocation: true,
+    includeAddress: true,
+    includeAltitude: true,
+    includeSpeed: true,
+    includeHeading: true,
+
+    includeSensors: false,
+    includeBarometer: false,
+
+    includeWeather: true,
+  ),
+);
+```
+
+### `DeviceContextMode.auto`
+
+Recommended for most apps:
+
+```dart
+mode: DeviceContextMode.auto
+```
+
+In `auto` mode, the package tries to collect only the device context relevant to the current question.
+
+For example:
+
+```text
+"What time is it?"
+        ↓
+Date / time
+
+"Battery koto?"
+        ↓
+Battery
+
+"Amar location kothay?"
+        ↓
+Location
+
+"Amar ekhane weather kemon?"
+        ↓
+Location + weather
+
+"Explain Java inheritance"
+        ↓
+No unnecessary location/weather collection
+```
+
+### `DeviceContextMode.always`
+
+```dart
+mode: DeviceContextMode.always
+```
+
+This collects every enabled context category for every generation.
+
+### Enable or disable Device Context at runtime
+
+```dart
+gpt.setDeviceContextEnabled(true);
+```
+
+Disable it:
+
+```dart
+gpt.setDeviceContextEnabled(false);
+```
+
+Update the full runtime configuration:
+
+```dart
+gpt.updateDeviceContextConfig(
+  gpt.deviceContextConfig.copyWith(
+    enabled: true,
+    includeLocation: false,
+    includeWeather: false,
+  ),
+);
+```
+
+### Location permission
+
+By default:
+
+```dart
+requestLocationPermissionWhenNeeded: false
+```
+
+This prevents the package from unexpectedly opening a location permission dialog.
+
+The host application can explicitly request permission:
+
+```dart
+final granted = await gpt.requestDeviceLocationPermission();
+```
+
+Check permission:
+
+```dart
+final granted = await gpt.hasDeviceLocationPermission();
+```
+
+If you intentionally want the package to request permission when a location-dependent question requires it:
+
+```dart
+deviceContextConfig: const DeviceContextConfig(
+  enabled: true,
+  requestLocationPermissionWhenNeeded: true,
+),
+```
+
+### Collect Device Context manually
+
+```dart
+final snapshot = await gpt.collectDeviceContext(
+  prompt: 'Show my current device information',
+);
+
+print(snapshot.toPromptContext());
+```
+
+### Device Context cache
+
+```dart
+deviceContextConfig: const DeviceContextConfig(
+  enabled: true,
+  basicCacheDuration: Duration(minutes: 5),
+  locationCacheDuration: Duration(minutes: 2),
+  weatherCacheDuration: Duration(minutes: 15),
+  sensorTimeout: Duration(seconds: 2),
+  locationTimeout: Duration(seconds: 10),
+  weatherTimeout: Duration(seconds: 8),
+),
+```
+
+Clear cached device information:
+
+```dart
+gpt.clearDeviceContextCache();
+```
+
+### Current weather
+
+Current weather is fetched from Open-Meteo using the current device location.
+
+```text
+Device GPS
+    ↓
+Latitude / Longitude
+    ↓
+Open-Meteo
+    ↓
+Current Weather
+    ↓
+Local GGUF Context
+```
+
+No weather API key is required.
+
+If location permission, internet access, device data, or weather data is unavailable, the engine treats that information as unavailable instead of intentionally inventing a live value.
+
+---
+
 ## ⚙️ 7. Configure Generation
 
 You can customize model behavior through `LocalLlmConfig`.
@@ -733,6 +1129,7 @@ final gpt = LocalLlmClient(
 
     maxTokens: 512,
     maxHistoryMessages: 8,
+    showThinking: false,
   ),
 );
 ```
@@ -751,6 +1148,7 @@ final gpt = LocalLlmClient(
 | `repeatPenalty` | Reduces repetitive output |
 | `maxTokens` | Maximum generated tokens |
 | `maxHistoryMessages` | Number of previous messages included in context |
+| `showThinking` | Exposes compatible model-emitted thinking through `generationEvents` / `thinkingText` |
 
 ---
 
@@ -796,7 +1194,10 @@ gpt.addListener(() {
   print('Loaded: ${gpt.isLoaded}');
   print('Generating: ${gpt.isGenerating}');
   print('Searching Web: ${gpt.isSearchingWeb}');
+  print('Thinking: ${gpt.isThinking}');
   print('Status: ${gpt.status}');
+  print('Thinking Text: ${gpt.thinkingText}');
+  print('Answer Text: ${gpt.answerText}');
 });
 ```
 
@@ -807,9 +1208,14 @@ gpt.isLoading
 gpt.isLoaded
 gpt.isGenerating
 gpt.isSearchingWeb
+gpt.isThinking
 gpt.status
 gpt.model
 gpt.messages
+gpt.thinkingText
+gpt.answerText
+gpt.lastWebSearchResult
+gpt.deviceContextConfig
 ```
 
 This makes it easy to integrate with:
@@ -846,6 +1252,8 @@ message.createdAt
 ```
 
 Your UI can render these however you want.
+
+In `0.0.6`, model-emitted thinking is kept separate from the normal assistant answer and is not stored as the final conversation-history response.
 
 ---
 
@@ -1021,6 +1429,17 @@ android/app/src/main/AndroidManifest.xml
 <uses-permission android:name="android.permission.INTERNET" />
 ```
 
+### Location permission for Device Context
+
+If you enable location, address, altitude, speed, heading, or current local weather, also add:
+
+```xml
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+```
+
+The package does not require location permission for normal local GGUF inference, date/time, basic device information, or ordinary web search.
+
 Normal local GGUF inference does not require internet access after the model is available on the device.
 
 
@@ -1148,6 +1567,12 @@ For sensitive or internal information, disable web retrieval for that turn:
 searchMode: WebSearchMode.never
 ```
 
+When Device Context is enabled, the host application controls which device-data categories are available to the engine. Device Context is disabled by default.
+
+Location-related context can require Android runtime permission.
+
+When current weather is enabled and needed, the package uses the current latitude/longitude to request current weather from Open-Meteo. Disable `includeWeather` or location-related context if your application should not use that network-backed feature.
+
 
 ---
 
@@ -1168,6 +1593,10 @@ You can use `Flutter_GPT_Engine` to build:
 - Public URL summarizers
 - Documentation assistants
 - Current-information assistants
+- Device-aware local AI assistants
+- Location-aware assistants
+- On-device troubleshooting assistants
+- Local AI apps with realtime thinking UI
 
 ---
 
@@ -1184,7 +1613,7 @@ No cloud API dependency for inference.
 
 Just a reusable Flutter engine for running compatible GGUF language models locally.
 
-With `0.0.4`, the engine can also retrieve fresh public web information when your application chooses to use the web-aware APIs.
+With `0.0.4`, the engine added optional fresh public web retrieval. With `0.0.6`, it can also expose model-emitted thinking, automatically fall back to web retrieval when the local model cannot answer, and optionally provide device-aware context while keeping the host application in control.
 
 ---
 
@@ -1200,6 +1629,8 @@ If you report a bug, please include:
 - GGUF model name
 - Package version
 - Relevant logs
+- Whether web search / fallback is enabled
+- Whether Device Context is enabled
 
 ---
 
@@ -1222,3 +1653,4 @@ If this package helps your project, consider giving the repository a star and sh
 
 🌐 **Portfolio:** [https://nafimahmed.github.io](https://nafimahmed.github.io)  
 📧 **Email:** [recentnafimahmed@gmail.com](mailto:recentnafimahmed@gmail.com)
+

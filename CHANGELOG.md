@@ -1,3 +1,7 @@
+## 0.0.6
+
+- device state analysis integrated.
+
 
 ## 0.0.5
 
