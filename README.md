@@ -1104,6 +1104,68 @@ If location permission, internet access, device data, or weather data is unavail
 
 ---
 
+## 🚀 Performance Tuning — New in v0.0.7
+
+The engine can measure the actual device/model combination instead of assuming
+that more CPU threads or GPU offload is always faster.
+
+### Benchmark the current profile
+
+```dart
+final result = await gpt.benchmark();
+
+print('TTFT: ${result.timeToFirstToken.inMilliseconds} ms');
+print('Speed: ${result.tokensPerSecond.toStringAsFixed(2)} tok/s');
+print('Threads: ${result.threads}');
+print('GPU layers: ${result.gpuLayers}');
+```
+
+The benchmark does not add messages to normal chat history.
+
+### Auto-tune CPU threads and GPU offload
+
+```dart
+final tuned = await gpt.autoTune();
+
+print('Selected threads: ${tuned.threads}');
+print('Selected GPU layers: ${tuned.gpuLayers}');
+print('Speed: ${tuned.selected.tokensPerSecond.toStringAsFixed(2)} tok/s');
+```
+
+`autoTune()` tests a small set of CPU thread counts and, when Vulkan is
+available, safe GPU layer candidates. It then reloads the model using the
+highest measured score. Tuning is opt-in because it reloads the model several
+times and runs short local generations.
+
+You can inspect the currently active profile:
+
+```dart
+print(gpt.activeThreads);
+print(gpt.activeGpuLayers);
+print(gpt.hasRuntimePerformanceProfile);
+```
+
+For a conservative device-aware thread count without benchmarking, set:
+
+```dart
+LocalLlmConfig(
+  threads: 0,
+)
+```
+
+Conversation history is also bounded by both message count and character count:
+
+```dart
+LocalLlmConfig(
+  maxHistoryMessages: 8,
+  maxHistoryCharacters: 12000,
+)
+```
+
+Set `maxHistoryCharacters: 0` to disable the character budget.
+
+---
+
 ## ⚙️ 7. Configure Generation
 
 You can customize model behavior through `LocalLlmConfig`.
