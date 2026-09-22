@@ -6,7 +6,6 @@
 - Added bounded conversation-history context.
 - Added local TTFT / token-throughput benchmarking.
 - Added opt-in CPU/GPU auto-tuning for the current device and GGUF model.
-- Added GitHub Actions analyze/test CI.
 
 ## 0.0.6
 
