@@ -46,8 +46,8 @@ class LocalLlmConfig {
   /// previous messages. Set to 0 to disable the character budget.
   final int maxHistoryCharacters;
 
-  /// When true, model output inside <think>...</think> or
-  /// <analysis>...</analysis> is exposed through LocalLlmClient.thinkingText
+  /// When true, model output inside `<think>...</think>` or
+  /// `<analysis>...</analysis>` is exposed through LocalLlmClient.thinkingText
   /// and LocalLlmClient.generationEvents while it is being generated.
   ///
   /// Thinking is never stored in chat history. As soon as final-answer output
