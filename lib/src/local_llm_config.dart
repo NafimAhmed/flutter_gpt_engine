@@ -15,7 +15,14 @@ class LocalLlmConfig {
   });
 
   final String systemPrompt;
+
+  /// CPU threads used by the native inference backend.
+  ///
+  /// Values greater than 0 are used directly. Set to 0 to choose a conservative
+  /// device-aware value from the available logical processors. For best
+  /// measured performance, call LocalLlmClient.autoTune after loading a model.
   final int threads;
+
   final int contextSize;
 
   /// null = auto-detect GPU layers.
