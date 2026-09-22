@@ -776,65 +776,112 @@ STRICT RULES:
       );
 
       final parser = LocalLlmThinkParser();
-      var lastAnswer = '';
-      var lastThinking = '';
+      final answerBuffer = StringBuffer();
+      final thinkingBuffer = StringBuffer();
+      var pendingAnswerDelta = StringBuffer();
+      var pendingThinkingDelta = StringBuffer();
+      var currentIsThinking = false;
+      var answerStarted = false;
 
-      await for (final token in stream) {
-        parser.add(token);
-        final parsed = parser.snapshot();
+      // Native token delivery remains realtime, while cumulative UI state and
+      // ChangeNotifier updates are coalesced to ~30 FPS. This avoids rebuilding
+      // host widgets and allocating the full generated String for every token.
+      final progressWatch = Stopwatch()..start();
+      const progressPublishIntervalMs = 33;
 
-        assistantMessage.text = parsed.answer;
-
-        if (effectiveShowThinking && parsed.isThinking) {
-          final thinking = parsed.thinking;
-          final delta = thinking.startsWith(lastThinking)
-              ? thinking.substring(lastThinking.length)
-              : thinking;
-
-          _isThinking = true;
-          _thinkingText = thinking;
-
-          if (delta.isNotEmpty) {
-            _emitGenerationEvent(
-              LocalLlmGenerationEvent(
-                phase: LocalLlmGenerationPhase.thinking,
-                text: thinking,
-                delta: delta,
-              ),
-            );
-          }
-
-          lastThinking = thinking;
-          _safeNotify();
+      void publishProgress({bool force = false}) {
+        if (!force &&
+            progressWatch.elapsedMilliseconds < progressPublishIntervalMs) {
+          return;
         }
 
-        final answer = parsed.answer;
-        final answerDelta = answer.startsWith(lastAnswer)
-            ? answer.substring(lastAnswer.length)
-            : answer;
+        progressWatch.reset();
 
-        if (answerDelta.isNotEmpty) {
+        if (effectiveShowThinking && !answerStarted) {
+          final delta = pendingThinkingDelta.toString();
+
+          if (delta.isNotEmpty || force) {
+            final thinking = thinkingBuffer.toString();
+            _isThinking = currentIsThinking;
+            _thinkingText = thinking;
+
+            if (delta.isNotEmpty) {
+              _emitGenerationEvent(
+                LocalLlmGenerationEvent(
+                  phase: LocalLlmGenerationPhase.thinking,
+                  text: thinking,
+                  delta: delta,
+                ),
+              );
+            }
+          }
+        }
+
+        if (answerStarted) {
+          final answer = answerBuffer.toString();
+          assistantMessage.text = answer;
+
           if (publishAnswerState) {
-            // The final answer has started. Remove the transient reasoning
-            // immediately so the host UI naturally switches to the answer.
+            final delta = pendingAnswerDelta.toString();
+
             _thinkingText = '';
             _isThinking = false;
             _answerText = answer;
 
-            _emitGenerationEvent(
-              LocalLlmGenerationEvent(
-                phase: LocalLlmGenerationPhase.answer,
-                text: answer,
-                delta: answerDelta,
-              ),
-            );
-            _safeNotify();
+            if (delta.isNotEmpty) {
+              _emitGenerationEvent(
+                LocalLlmGenerationEvent(
+                  phase: LocalLlmGenerationPhase.answer,
+                  text: answer,
+                  delta: delta,
+                ),
+              );
+            }
           }
+        }
 
-          lastAnswer = answer;
-          yield answerDelta;
+        pendingThinkingDelta = StringBuffer();
+        pendingAnswerDelta = StringBuffer();
+
+        if (publishAnswerState ||
+            (effectiveShowThinking && !answerStarted)) {
+          _safeNotify();
         }
       }
+
+      await for (final token in stream) {
+        parser.add(token);
+        final parsed = parser.takeDelta();
+        currentIsThinking = parsed.isThinking;
+
+        if (parsed.thinkingDelta.isNotEmpty) {
+          thinkingBuffer.write(parsed.thinkingDelta);
+          pendingThinkingDelta.write(parsed.thinkingDelta);
+        }
+
+        final answerDelta = parsed.answerDelta;
+
+        if (answerDelta.isNotEmpty) {
+          if (!answerStarted) {
+            // Flush any last reasoning update before switching the host UI to
+            // final-answer mode.
+            if (effectiveShowThinking) {
+              publishProgress(force: true);
+            }
+            answerStarted = true;
+          }
+
+          answerBuffer.write(answerDelta);
+          pendingAnswerDelta.write(answerDelta);
+
+          // Preserve the package's realtime String stream contract.
+          yield answerDelta;
+        }
+
+        publishProgress();
+      }
+
+      publishProgress(force: true);
 
       final finalParsed = parser.snapshot();
       assistantMessage.text = finalParsed.answer;
