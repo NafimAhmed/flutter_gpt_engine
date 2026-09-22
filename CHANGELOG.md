@@ -1,3 +1,13 @@
+## 0.0.7
+
+- Reduced token-stream parsing allocations with an incremental reasoning parser.
+- Coalesced ChangeNotifier generation updates for smoother Flutter UIs.
+- Reused HTTP connections and parallelized web source fetching.
+- Added bounded conversation-history context.
+- Added local TTFT / token-throughput benchmarking.
+- Added opt-in CPU/GPU auto-tuning for the current device and GGUF model.
+- Added GitHub Actions analyze/test CI.
+
 ## 0.0.6
 
 - device state analysis integrated.
