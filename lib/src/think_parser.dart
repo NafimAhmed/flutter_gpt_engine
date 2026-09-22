@@ -10,18 +10,32 @@ class ThinkParseSnapshot {
   final bool isThinking;
 }
 
+class ThinkParseDelta {
+  const ThinkParseDelta({
+    required this.thinkingDelta,
+    required this.answerDelta,
+    required this.isThinking,
+  });
+
+  final String thinkingDelta;
+  final String answerDelta;
+  final bool isThinking;
+
+  bool get isEmpty => thinkingDelta.isEmpty && answerDelta.isEmpty;
+}
+
 /// Incremental parser for common local-model reasoning tags.
 ///
-/// Unlike the previous implementation, this parser never reparses the entire
-/// generated response for every incoming token. It only examines the new chunk
-/// plus a tiny suffix that may contain a split tag such as "<thi" + "nk>".
-///
-/// This keeps parsing cost effectively O(n) for the full generation instead of
-/// repeatedly scanning an ever-growing String.
+/// Only the newly received chunk plus a tiny possible split-tag suffix is
+/// inspected. Full cumulative strings are materialized only when [snapshot]
+/// is requested, which keeps the hot token loop allocation-light.
 class LocalLlmThinkParser {
   final StringBuffer _raw = StringBuffer();
   final StringBuffer _thinking = StringBuffer();
   final StringBuffer _answer = StringBuffer();
+
+  StringBuffer _thinkingDelta = StringBuffer();
+  StringBuffer _answerDelta = StringBuffer();
 
   String _pending = '';
   bool _isThinking = false;
@@ -50,7 +64,27 @@ class LocalLlmThinkParser {
   }
 
   String get rawText => _raw.toString();
+  bool get isThinking => _isThinking;
 
+  /// Returns only text produced since the previous [takeDelta] call.
+  ///
+  /// This is the preferred API for the native token hot path.
+  ThinkParseDelta takeDelta() {
+    final result = ThinkParseDelta(
+      thinkingDelta: _thinkingDelta.toString(),
+      answerDelta: _answerDelta.toString(),
+      isThinking: _isThinking,
+    );
+
+    _thinkingDelta = StringBuffer();
+    _answerDelta = StringBuffer();
+    return result;
+  }
+
+  /// Materializes the complete parsed result.
+  ///
+  /// Call this sparingly (for example at the end of generation) because it
+  /// intentionally creates cumulative Strings.
   ThinkParseSnapshot snapshot() {
     return ThinkParseSnapshot(
       thinking: _thinking.toString(),
@@ -74,9 +108,8 @@ class LocalLlmThinkParser {
         continue;
       }
 
-      // Keep only the smallest possible suffix that could become a tag after
-      // the next native chunk arrives. Everything before it is final text and
-      // can be published immediately.
+      // Keep only a suffix that may become a complete tag after the next
+      // native chunk. Everything before it is safe to publish immediately.
       final retained = _partialTagSuffixLength(lower);
       final visibleLength = _pending.length - retained;
 
@@ -136,8 +169,10 @@ class LocalLlmThinkParser {
 
     if (_isThinking) {
       _thinking.write(value);
+      _thinkingDelta.write(value);
     } else {
       _answer.write(value);
+      _answerDelta.write(value);
     }
   }
 }
