@@ -130,7 +130,7 @@ Add the package to your Flutter project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.6
+  flutter_gpt_engine: ^0.0.7
 ```
 
 Then run:
@@ -281,11 +281,11 @@ Web search is **optional**. Local GGUF inference still works without internet ac
 
 To enable web search, follow these steps.
 
-### 1. Use `flutter_gpt_engine: ^0.0.6`
+### 1. Use `flutter_gpt_engine: ^0.0.7`
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.6
+  flutter_gpt_engine: ^0.0.7
 ```
 
 Then run:
@@ -495,7 +495,7 @@ That is enough to enable the package's web-aware generation flow.
 
 ---
 
-## 🌐 Smart Web Search — New in v0.0.4
+## 🌐 Smart Web Search — New in v0.0.7
 
 `Flutter_GPT_Engine` can now combine **local GGUF inference** with optional fresh public web information.
 
@@ -1386,7 +1386,7 @@ message.createdAt
 
 Your UI can render these however you want.
 
-In `0.0.6`, model-emitted thinking is kept separate from the normal assistant answer and is not stored as the final conversation-history response.
+In `0.0.7`, model-emitted thinking is kept separate from the normal assistant answer and is not stored as the final conversation-history response.
 
 ---
 

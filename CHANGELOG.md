@@ -7,6 +7,9 @@
 - Added local TTFT / token-throughput benchmarking.
 - Added opt-in CPU/GPU auto-tuning for the current device and GGUF model.
 
+## 0.0.7
+
+- More optimized.
 ## 0.0.6
 
 - device state analysis integrated.
