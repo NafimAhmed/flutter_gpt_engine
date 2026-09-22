@@ -9,7 +9,37 @@ void main() {
     expect(config.threads, 4);
     expect(config.contextSize, 4096);
     expect(config.maxTokens, 384);
+    expect(config.maxHistoryCharacters, 12000);
     expect(config.temperature, 0.60);
+  });
+
+  test('LocalLlmBenchmarkResult stores performance metrics', () {
+    const result = LocalLlmBenchmarkResult(
+      threads: 4,
+      gpuLayers: 16,
+      timeToFirstToken: Duration(milliseconds: 250),
+      totalDuration: Duration(seconds: 2),
+      decodeDuration: Duration(milliseconds: 1750),
+      generatedTokenCount: 32,
+      generatedCharacters: 120,
+      tokensPerSecond: 17.7,
+      score: 15.1,
+    );
+
+    expect(result.threads, 4);
+    expect(result.gpuLayers, 16);
+    expect(result.generatedTokenCount, 32);
+    expect(result.tokensPerSecond, 17.7);
+  });
+
+  test('LocalLlmConfig supports adaptive threads and history budget', () {
+    const config = LocalLlmConfig(
+      threads: 0,
+      maxHistoryCharacters: 6000,
+    );
+
+    expect(config.threads, 0);
+    expect(config.maxHistoryCharacters, 6000);
   });
 
   group('LocalLlmThinkParser', () {
