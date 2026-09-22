@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals, use_null_aware_elements
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
