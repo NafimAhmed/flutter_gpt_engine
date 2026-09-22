@@ -14,6 +14,7 @@ import 'local_llm_config.dart';
 import 'local_llm_generation_event.dart';
 import 'local_llm_message.dart';
 import 'local_llm_model.dart';
+import 'local_llm_performance.dart';
 import 'think_parser.dart';
 import 'web_search_config.dart';
 import 'web_search_models.dart';
@@ -51,6 +52,12 @@ class LocalLlmClient extends ChangeNotifier {
   bool _disposed = false;
   int _smartRunId = 0;
 
+  int _activeThreads = 0;
+  int _activeGpuLayers = 0;
+  int? _runtimeThreads;
+  int? _runtimeGpuLayers;
+  String? _tunedModelPath;
+
   String _status = 'No model loaded';
   LocalLlmModel? _model;
   WebSearchResult? _lastWebSearchResult;
@@ -71,6 +78,16 @@ class LocalLlmClient extends ChangeNotifier {
   LocalLlmModel? get model => _model;
   WebSearchResult? get lastWebSearchResult => _lastWebSearchResult;
   DeviceContextSnapshot? get lastDeviceContext => _lastDeviceContext;
+
+  /// CPU thread count used by the currently loaded native model.
+  int get activeThreads => _activeThreads;
+
+  /// GPU layers used by the currently loaded native model. Zero means CPU-only.
+  int get activeGpuLayers => _activeGpuLayers;
+
+  /// True after [autoTune] has selected a runtime profile for this model.
+  bool get hasRuntimePerformanceProfile =>
+      _runtimeThreads != null && _runtimeGpuLayers != null;
 
   bool get isThinking => _isThinking;
   String get thinkingText => _thinkingText;
@@ -158,9 +175,20 @@ class LocalLlmClient extends ChangeNotifier {
       await _disposeController();
       _llama = LlamaController();
 
+      // Auto-tuned settings are model-specific. Loading a different model
+      // falls back to the normal configuration until it is tuned separately.
+      if (_tunedModelPath != null && _tunedModelPath != modelPath) {
+        _runtimeThreads = null;
+        _runtimeGpuLayers = null;
+        _tunedModelPath = null;
+      }
+
+      final requestedThreads = _resolveRequestedThreads();
       int requestedGpuLayers;
 
-      if (config.gpuLayers != null) {
+      if (_runtimeGpuLayers != null) {
+        requestedGpuLayers = _runtimeGpuLayers!;
+      } else if (config.gpuLayers != null) {
         requestedGpuLayers = config.gpuLayers!;
       } else {
         final gpu = await _llama.detectGpu();
@@ -175,10 +203,12 @@ class LocalLlmClient extends ChangeNotifier {
       try {
         await _llama.loadModel(
           modelPath: modelPath,
-          threads: config.threads,
+          threads: requestedThreads,
           contextSize: config.contextSize,
           gpuLayers: requestedGpuLayers,
         );
+        _activeThreads = requestedThreads;
+        _activeGpuLayers = requestedGpuLayers;
       } catch (gpuError) {
         if (requestedGpuLayers <= 0) {
           rethrow;
@@ -197,10 +227,12 @@ class LocalLlmClient extends ChangeNotifier {
 
         await _llama.loadModel(
           modelPath: modelPath,
-          threads: config.threads,
+          threads: requestedThreads,
           contextSize: config.contextSize,
           gpuLayers: 0,
         );
+        _activeThreads = requestedThreads;
+        _activeGpuLayers = 0;
       }
 
       _model = LocalLlmModel(
@@ -214,6 +246,8 @@ class LocalLlmClient extends ChangeNotifier {
     } catch (error) {
       _model = null;
       _isLoaded = false;
+      _activeThreads = 0;
+      _activeGpuLayers = 0;
       _status = 'Model load failed: $error';
 
       await _disposeController();
@@ -488,6 +522,224 @@ class LocalLlmClient extends ChangeNotifier {
     }
 
     return buffer.toString();
+  }
+
+  /// Benchmarks the currently loaded model without modifying chat history.
+  ///
+  /// The result reports native token-callback throughput and time-to-first-
+  /// token (TTFT). The benchmark clears only the native KV context; the Dart
+  /// conversation history remains untouched.
+  Future<LocalLlmBenchmarkResult> benchmark({
+    String prompt =
+        'Write the numbers from 1 to 100, separated by spaces, with no explanation.',
+    int maxTokens = 48,
+  }) async {
+    _ensureNotDisposed();
+
+    if (!_isLoaded || _model == null) {
+      throw StateError('Load a GGUF model before benchmarking.');
+    }
+    if (_isGenerating || _isSearchingWeb || _isLoading) {
+      throw StateError('The engine is busy.');
+    }
+    if (maxTokens <= 0) {
+      throw ArgumentError.value(maxTokens, 'maxTokens', 'Must be positive.');
+    }
+
+    _isGenerating = true;
+    _status = 'Benchmarking model...';
+    _safeNotify();
+
+    try {
+      return await _runBenchmark(
+        prompt: prompt,
+        maxTokens: maxTokens,
+        threads: _activeThreads,
+        gpuLayers: _activeGpuLayers,
+      );
+    } finally {
+      _isGenerating = false;
+      _status = _isLoaded ? 'Ready' : _status;
+      _safeNotify();
+    }
+  }
+
+  /// Tests a small set of safe CPU/GPU profiles and applies the fastest one.
+  ///
+  /// Auto-tuning is intentionally opt-in because each candidate reloads the
+  /// GGUF model and runs a short local benchmark. The selected profile remains
+  /// active for subsequent reloads of the same model path.
+  Future<LocalLlmAutoTuneResult> autoTune({
+    List<int>? threadCandidates,
+    bool includeGpu = true,
+    int benchmarkTokens = 40,
+    String benchmarkPrompt =
+        'Write the numbers from 1 to 100, separated by spaces, with no explanation.',
+  }) async {
+    _ensureNotDisposed();
+
+    final currentModel = _model;
+    if (!_isLoaded || currentModel == null) {
+      throw StateError('Load a GGUF model before auto-tuning.');
+    }
+    if (_isGenerating || _isSearchingWeb || _isLoading) {
+      throw StateError('The engine is busy.');
+    }
+    if (benchmarkTokens <= 0) {
+      throw ArgumentError.value(
+        benchmarkTokens,
+        'benchmarkTokens',
+        'Must be positive.',
+      );
+    }
+
+    final originalThreads =
+        _activeThreads > 0 ? _activeThreads : _resolveRequestedThreads();
+    final originalGpuLayers = _activeGpuLayers;
+    final logicalProcessors = Platform.numberOfProcessors;
+    final candidates = _normalizeThreadCandidates(
+      threadCandidates ?? _defaultThreadCandidates(logicalProcessors),
+      logicalProcessors,
+    );
+    final results = <LocalLlmBenchmarkResult>[];
+
+    _isLoading = true;
+    _status = 'Auto-tuning local inference...';
+    _safeNotify();
+
+    try {
+      // CPU profiles establish the best thread count first.
+      for (final threads in candidates) {
+        try {
+          _status = 'Benchmarking CPU with $threads threads...';
+          _safeNotify();
+
+          await _reloadModelForPerformance(
+            currentModel,
+            threads: threads,
+            gpuLayers: 0,
+          );
+
+          results.add(
+            await _runBenchmark(
+              prompt: benchmarkPrompt,
+              maxTokens: benchmarkTokens,
+              threads: threads,
+              gpuLayers: 0,
+            ),
+          );
+        } catch (error) {
+          debugPrint(
+            'Flutter_GPT_Engine: CPU tuning candidate failed '
+            '(threads=$threads): $error',
+          );
+        }
+      }
+
+      if (results.isEmpty) {
+        throw StateError('No CPU benchmark candidate completed successfully.');
+      }
+
+      var bestCpu = results.first;
+      for (final result in results.skip(1)) {
+        if (result.score > bestCpu.score) bestCpu = result;
+      }
+
+      if (includeGpu) {
+        try {
+          final gpu = await _llama.detectGpu();
+          final recommended = gpu.recommendedGpuLayers;
+
+          if (gpu.vulkanSupported && recommended > 0) {
+            final gpuCandidates = <int>{
+              if (recommended > 16) 16,
+              recommended,
+              if (config.gpuLayers != null && config.gpuLayers! > 0)
+                config.gpuLayers!,
+            }.toList();
+
+            for (final gpuLayers in gpuCandidates) {
+              try {
+                _status =
+                    'Benchmarking GPU ($gpuLayers layers, ${bestCpu.threads} threads)...';
+                _safeNotify();
+
+                await _reloadModelForPerformance(
+                  currentModel,
+                  threads: bestCpu.threads,
+                  gpuLayers: gpuLayers,
+                );
+
+                results.add(
+                  await _runBenchmark(
+                    prompt: benchmarkPrompt,
+                    maxTokens: benchmarkTokens,
+                    threads: bestCpu.threads,
+                    gpuLayers: gpuLayers,
+                  ),
+                );
+              } catch (error) {
+                debugPrint(
+                  'Flutter_GPT_Engine: GPU tuning candidate failed '
+                  '(layers=$gpuLayers): $error',
+                );
+              }
+            }
+          }
+        } catch (error) {
+          debugPrint(
+            'Flutter_GPT_Engine: GPU detection during auto-tune failed: $error',
+          );
+        }
+      }
+
+      var selected = results.first;
+      for (final result in results.skip(1)) {
+        if (result.score > selected.score) selected = result;
+      }
+
+      _runtimeThreads = selected.threads;
+      _runtimeGpuLayers = selected.gpuLayers;
+      _tunedModelPath = currentModel.path;
+
+      _status =
+          'Applying tuned profile: ${selected.threads} threads, '
+          '${selected.gpuLayers} GPU layers...';
+      _safeNotify();
+
+      await _reloadModelForPerformance(
+        currentModel,
+        threads: selected.threads,
+        gpuLayers: selected.gpuLayers,
+      );
+
+      _status = 'Ready';
+
+      return LocalLlmAutoTuneResult(
+        selected: selected,
+        candidates: List<LocalLlmBenchmarkResult>.unmodifiable(results),
+        logicalProcessors: logicalProcessors,
+      );
+    } catch (error) {
+      // Restore the previously working profile before surfacing the error.
+      _runtimeThreads = null;
+      _runtimeGpuLayers = null;
+      _tunedModelPath = null;
+
+      try {
+        await _reloadModelForPerformance(
+          currentModel,
+          threads: originalThreads,
+          gpuLayers: originalGpuLayers,
+        );
+      } catch (_) {}
+
+      rethrow;
+    } finally {
+      _isLoading = false;
+      _status = _isLoaded ? 'Ready' : _status;
+      _safeNotify();
+    }
   }
 
   /// Collects device context on demand. Returns an empty snapshot when the
@@ -1217,6 +1469,8 @@ ANSWER USING ONLY THE LIVE WEB DATA FOR CURRENT FACTS:
 
     _model = null;
     _lastWebSearchResult = null;
+    _activeThreads = 0;
+    _activeGpuLayers = 0;
     _thinkingText = '';
     _answerText = '';
     _isThinking = false;
@@ -1233,20 +1487,218 @@ ANSWER USING ONLY THE LIVE WEB DATA FOR CURRENT FACTS:
 
     // The current user/assistant pair has not been appended yet when this
     // method is called.
-    final int start =
+    final messageStart =
         _messages.length > config.maxHistoryMessages
             ? _messages.length - config.maxHistoryMessages
             : 0;
 
-    return _messages
-        .sublist(start)
+    final candidates = _messages
+        .sublist(messageStart)
         .where(
           (message) =>
               message.text.trim().isNotEmpty &&
               (message.role == 'user' || message.role == 'assistant'),
         )
+        .toList();
+
+    final characterBudget = config.maxHistoryCharacters;
+    if (characterBudget <= 0 || candidates.isEmpty) {
+      return candidates.map((message) => message.copy()).toList();
+    }
+
+    var usedCharacters = 0;
+    var start = candidates.length;
+
+    // Keep a contiguous suffix so recent conversational order is preserved.
+    for (var i = candidates.length - 1; i >= 0; i--) {
+      final nextLength = candidates[i].text.length;
+      if (usedCharacters + nextLength > characterBudget) break;
+
+      usedCharacters += nextLength;
+      start = i;
+    }
+
+    if (start >= candidates.length) {
+      // A single latest message can exceed the budget. Keep its tail rather
+      // than dropping the most relevant context completely.
+      final latest = candidates.last;
+      final text = latest.text.length <= characterBudget
+          ? latest.text
+          : latest.text.substring(latest.text.length - characterBudget);
+
+      return <LocalLlmMessage>[
+        LocalLlmMessage(
+          role: latest.role,
+          text: text,
+          createdAt: latest.createdAt,
+        ),
+      ];
+    }
+
+    // Avoid starting the history with an orphaned assistant response when a
+    // character boundary cuts between a user/assistant pair.
+    if (candidates[start].role == 'assistant' &&
+        start + 1 < candidates.length) {
+      start++;
+    }
+
+    return candidates
+        .sublist(start)
         .map((message) => message.copy())
         .toList();
+  }
+
+  int _resolveRequestedThreads() {
+    if (_runtimeThreads != null && _runtimeThreads! > 0) {
+      return _runtimeThreads!;
+    }
+
+    if (config.threads > 0) {
+      return config.threads;
+    }
+
+    final processors = Platform.numberOfProcessors;
+    if (processors <= 2) return processors < 1 ? 1 : processors;
+    if (processors <= 6) return processors < 4 ? processors : 4;
+
+    final candidate = processors - 2;
+    return candidate > 6 ? 6 : candidate;
+  }
+
+  List<int> _defaultThreadCandidates(int logicalProcessors) {
+    final maxThreads = logicalProcessors < 1 ? 1 : logicalProcessors;
+    final values = <int>{
+      if (maxThreads >= 2) 2,
+      if (maxThreads >= 4) 4,
+      if (maxThreads >= 6) 6,
+      _resolveRequestedThreads(),
+    }.toList()
+      ..sort();
+
+    return values;
+  }
+
+  List<int> _normalizeThreadCandidates(
+    List<int> values,
+    int logicalProcessors,
+  ) {
+    final maxThreads = logicalProcessors < 1 ? 1 : logicalProcessors;
+    final normalized = values
+        .where((value) => value > 0)
+        .map((value) => value > maxThreads ? maxThreads : value)
+        .toSet()
+        .toList()
+      ..sort();
+
+    return normalized.isEmpty
+        ? <int>[_resolveRequestedThreads()]
+        : normalized;
+  }
+
+  Future<void> _reloadModelForPerformance(
+    LocalLlmModel model, {
+    required int threads,
+    required int gpuLayers,
+  }) async {
+    try {
+      await _llama.stop();
+    } catch (_) {}
+
+    await _disposeController();
+    _llama = LlamaController();
+    _isLoaded = false;
+
+    await _llama.loadModel(
+      modelPath: model.path,
+      threads: threads,
+      contextSize: config.contextSize,
+      gpuLayers: gpuLayers,
+    );
+
+    _model = model;
+    _activeThreads = threads;
+    _activeGpuLayers = gpuLayers;
+    _isLoaded = true;
+  }
+
+  Future<LocalLlmBenchmarkResult> _runBenchmark({
+    required String prompt,
+    required int maxTokens,
+    required int threads,
+    required int gpuLayers,
+  }) async {
+    await _llama.clearContext();
+
+    final stopwatch = Stopwatch()..start();
+    Duration? firstTokenAt;
+    var tokenCount = 0;
+    var characterCount = 0;
+
+    try {
+      final stream = _llama.generateChat(
+        messages: <ChatMessage>[
+          const ChatMessage(
+            role: 'system',
+            content:
+                'You are running a local inference benchmark. Follow the user '
+                'instruction directly and do not explain the benchmark.',
+          ),
+          ChatMessage(
+            role: 'user',
+            content: prompt,
+          ),
+        ],
+        temperature: 0.20,
+        topP: 0.95,
+        topK: 20,
+        repeatPenalty: 1.0,
+        maxTokens: maxTokens,
+      );
+
+      await for (final token in stream) {
+        firstTokenAt ??= stopwatch.elapsed;
+        tokenCount++;
+        characterCount += token.length;
+      }
+    } finally {
+      stopwatch.stop();
+      try {
+        await _llama.clearContext();
+      } catch (_) {}
+    }
+
+    if (tokenCount == 0) {
+      throw StateError('Benchmark produced no tokens.');
+    }
+
+    final total = stopwatch.elapsed;
+    final ttft = firstTokenAt ?? total;
+    final decode = total - ttft;
+
+    double tokensPerSecond;
+    if (tokenCount > 1 && decode.inMicroseconds > 0) {
+      tokensPerSecond =
+          (tokenCount - 1) / (decode.inMicroseconds / 1000000.0);
+    } else {
+      final seconds = total.inMicroseconds / 1000000.0;
+      tokensPerSecond = seconds > 0 ? tokenCount / seconds : 0.0;
+    }
+
+    // Prefer decode throughput while modestly penalizing slow prompt startup.
+    final score =
+        tokensPerSecond / (1.0 + (ttft.inMilliseconds / 2000.0));
+
+    return LocalLlmBenchmarkResult(
+      threads: threads,
+      gpuLayers: gpuLayers,
+      timeToFirstToken: ttft,
+      totalDuration: total,
+      decodeDuration: decode,
+      generatedTokenCount: tokenCount,
+      generatedCharacters: characterCount,
+      tokensPerSecond: tokensPerSecond,
+      score: score,
+    );
   }
 
   Future<void> _validateGgufFile(File file) async {
