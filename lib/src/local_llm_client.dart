@@ -596,6 +596,9 @@ class LocalLlmClient extends ChangeNotifier {
     final originalThreads =
         _activeThreads > 0 ? _activeThreads : _resolveRequestedThreads();
     final originalGpuLayers = _activeGpuLayers;
+    final originalRuntimeThreads = _runtimeThreads;
+    final originalRuntimeGpuLayers = _runtimeGpuLayers;
+    final originalTunedModelPath = _tunedModelPath;
     final logicalProcessors = Platform.numberOfProcessors;
     final candidates = _normalizeThreadCandidates(
       threadCandidates ?? _defaultThreadCandidates(logicalProcessors),
@@ -722,9 +725,9 @@ class LocalLlmClient extends ChangeNotifier {
       );
     } catch (error) {
       // Restore the previously working profile before surfacing the error.
-      _runtimeThreads = null;
-      _runtimeGpuLayers = null;
-      _tunedModelPath = null;
+      _runtimeThreads = originalRuntimeThreads;
+      _runtimeGpuLayers = originalRuntimeGpuLayers;
+      _tunedModelPath = originalTunedModelPath;
 
       try {
         await _reloadModelForPerformance(
@@ -1637,7 +1640,7 @@ ANSWER USING ONLY THE LIVE WEB DATA FOR CURRENT FACTS:
     try {
       final stream = _llama.generateChat(
         messages: <ChatMessage>[
-          const ChatMessage(
+          ChatMessage(
             role: 'system',
             content:
                 'You are running a local inference benchmark. Follow the user '
