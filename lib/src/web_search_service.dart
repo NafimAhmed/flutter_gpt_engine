@@ -10,9 +10,26 @@ import 'web_search_models.dart';
 class WebSearchService {
   WebSearchService({
     this.config = const WebSearchConfig(),
-  });
+  }) : _client = HttpClient() {
+    _client
+      ..connectionTimeout = config.timeout
+      ..userAgent = config.userAgent;
+  }
 
   final WebSearchConfig config;
+  final HttpClient _client;
+  bool _disposed = false;
+
+  /// Releases pooled HTTP connections.
+  ///
+  /// A single client is intentionally reused while this service is alive so
+  /// DNS/TCP/TLS setup and keep-alive connections can be reused across search
+  /// result pages.
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _client.close(force: true);
+  }
 
   Future<WebSearchResult> search(
     String query, {
@@ -32,16 +49,17 @@ class WebSearchService {
       final urls = _extractUrls(originalPrompt ?? cleanQuery);
 
       if (urls.isNotEmpty) {
-        final directSources = <WebSource>[];
+        final fetched = await Future.wait(
+          urls.take(config.maxResults).map(
+                (url) => fetchUrl(
+                  url,
+                  query: cleanQuery,
+                  provider: 'direct',
+                ),
+              ),
+        );
 
-        for (final url in urls.take(config.maxResults)) {
-          final source = await fetchUrl(
-            url,
-            query: cleanQuery,
-            provider: 'direct',
-          );
-          if (source != null) directSources.add(source);
-        }
+        final directSources = fetched.whereType<WebSource>().toList();
 
         if (directSources.isNotEmpty) {
           return WebSearchResult(
@@ -148,21 +166,17 @@ class WebSearchService {
       );
     }
 
-    final sources = <WebSource>[];
+    final fetched = await Future.wait(
+      urls.take(config.maxResults).map(
+            (url) => fetchUrl(
+              url,
+              query: query,
+              provider: 'official',
+            ),
+          ),
+    );
 
-    for (final url in urls) {
-      if (sources.length >= config.maxResults) break;
-
-      final source = await fetchUrl(
-        url,
-        query: query,
-        provider: 'official',
-      );
-
-      if (source != null) {
-        sources.add(source);
-      }
-    }
+    final sources = fetched.whereType<WebSource>().toList();
 
     return WebSearchResult(
       query: query,
@@ -195,19 +209,25 @@ class WebSearchService {
       final sources = <WebSource>[];
 
       if (resultLinks.isNotEmpty) {
-        for (final link in resultLinks.take(config.maxResults)) {
-          final href = link.attributes['href'];
-          if (href == null || href.isEmpty) continue;
+        final targets = resultLinks
+            .take(config.maxResults)
+            .map((link) => link.attributes['href'])
+            .whereType<String>()
+            .where((href) => href.isNotEmpty)
+            .map(base.resolve)
+            .toList();
 
-          final target = base.resolve(href);
-          final source = await fetchUrl(
-            target.toString(),
-            query: query,
-            provider: 'wikipedia',
-          );
+        final fetched = await Future.wait(
+          targets.map(
+            (target) => fetchUrl(
+              target.toString(),
+              query: query,
+              provider: 'wikipedia',
+            ),
+          ),
+        );
 
-          if (source != null) sources.add(source);
-        }
+        sources.addAll(fetched.whereType<WebSource>());
       } else {
         final heading = document.querySelector('#firstHeading')?.text.trim() ?? '';
         final isSearchPage = heading.toLowerCase().contains('search') ||
@@ -316,15 +336,26 @@ class WebSearchService {
       });
 
       final sources = <WebSource>[];
+      final candidateLimit = config.maxResults <= 0
+          ? 0
+          : (config.maxResults * 2) + 2;
+      final selectedCandidates = candidates.take(candidateLimit).toList();
 
-      for (final candidate in candidates) {
+      final fetchedPages = await Future.wait(
+        selectedCandidates.map(
+          (candidate) => fetchUrl(
+            candidate.uri.toString(),
+            query: query,
+            provider: 'google',
+          ),
+        ),
+      );
+
+      for (var i = 0; i < selectedCandidates.length; i++) {
         if (sources.length >= config.maxResults) break;
 
-        final fetched = await fetchUrl(
-          candidate.uri.toString(),
-          query: query,
-          provider: 'google',
-        );
+        final candidate = selectedCandidates[i];
+        final fetched = fetchedPages[i];
 
         if (fetched != null) {
           sources.add(
@@ -360,46 +391,38 @@ class WebSearchService {
   }
 
   Future<_HttpPage?> _get(Uri uri) async {
-    if (!_isAllowedPublicUri(uri)) return null;
+    if (_disposed || !_isAllowedPublicUri(uri)) return null;
 
-    final client = HttpClient()
-      ..connectionTimeout = config.timeout
-      ..userAgent = config.userAgent;
+    final request = await _client.getUrl(uri).timeout(config.timeout);
+    request.followRedirects = true;
+    request.maxRedirects = 5;
+    request.headers.set(
+      HttpHeaders.acceptHeader,
+      'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5',
+    );
+    request.headers.set('Accept-Language', 'en-US,en;q=0.9,bn;q=0.8');
 
-    try {
-      final request = await client.getUrl(uri).timeout(config.timeout);
-      request.followRedirects = true;
-      request.maxRedirects = 5;
-      request.headers.set(
-        HttpHeaders.acceptHeader,
-        'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5',
-      );
-      request.headers.set('Accept-Language', 'en-US,en;q=0.9,bn;q=0.8');
+    final response = await request.close().timeout(config.timeout);
 
-      final response = await request.close().timeout(config.timeout);
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        return null;
-      }
-
-      final contentType = response.headers.contentType;
-      final mime = contentType?.mimeType.toLowerCase() ?? '';
-
-      if (mime.isNotEmpty &&
-          !mime.contains('html') &&
-          !mime.contains('text/plain')) {
-        return null;
-      }
-
-      final body = await response
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .join()
-          .timeout(config.timeout);
-
-      return _HttpPage(body: body);
-    } finally {
-      client.close(force: true);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return null;
     }
+
+    final contentType = response.headers.contentType;
+    final mime = contentType?.mimeType.toLowerCase() ?? '';
+
+    if (mime.isNotEmpty &&
+        !mime.contains('html') &&
+        !mime.contains('text/plain')) {
+      return null;
+    }
+
+    final body = await response
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join()
+        .timeout(config.timeout);
+
+    return _HttpPage(body: body);
   }
 
   void _removeNoise(Document document) {
