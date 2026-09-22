@@ -10,6 +10,7 @@ class LocalLlmConfig {
     this.repeatPenalty = 1.15,
     this.maxTokens = 384,
     this.maxHistoryMessages = 8,
+    this.maxHistoryCharacters = 12000,
     this.showThinking = false,
   });
 
@@ -30,6 +31,13 @@ class LocalLlmConfig {
 
   /// Number of previous user/assistant messages added to each generation.
   final int maxHistoryMessages;
+
+  /// Maximum combined character count kept from recent history.
+  ///
+  /// This is a lightweight context guard for mobile devices. It complements
+  /// [maxHistoryMessages] and avoids repeatedly re-processing very large
+  /// previous messages. Set to 0 to disable the character budget.
+  final int maxHistoryCharacters;
 
   /// When true, model output inside <think>...</think> or
   /// <analysis>...</analysis> is exposed through LocalLlmClient.thinkingText
@@ -52,6 +60,7 @@ class LocalLlmConfig {
     double? repeatPenalty,
     int? maxTokens,
     int? maxHistoryMessages,
+    int? maxHistoryCharacters,
     bool? showThinking,
   }) {
     return LocalLlmConfig(
@@ -65,6 +74,8 @@ class LocalLlmConfig {
       repeatPenalty: repeatPenalty ?? this.repeatPenalty,
       maxTokens: maxTokens ?? this.maxTokens,
       maxHistoryMessages: maxHistoryMessages ?? this.maxHistoryMessages,
+      maxHistoryCharacters:
+          maxHistoryCharacters ?? this.maxHistoryCharacters,
       showThinking: showThinking ?? this.showThinking,
     );
   }
