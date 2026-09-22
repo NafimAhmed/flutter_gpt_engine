@@ -26,13 +26,15 @@ class LocalLlmClient extends ChangeNotifier {
     DeviceContextConfig deviceContextConfig = const DeviceContextConfig(),
     WebSearchService? webSearchService,
     DeviceContextService? deviceContextService,
-  })  : _webSearchService =
+  })  : _ownsWebSearchService = webSearchService == null,
+        _webSearchService =
             webSearchService ?? WebSearchService(config: webSearchConfig),
         _deviceContextService = deviceContextService ??
             DeviceContextService(config: deviceContextConfig);
 
   final LocalLlmConfig config;
   final WebSearchConfig webSearchConfig;
+  final bool _ownsWebSearchService;
   final WebSearchService _webSearchService;
   final DeviceContextService _deviceContextService;
 
@@ -1370,6 +1372,10 @@ ANSWER USING ONLY THE LIVE WEB DATA FOR CURRENT FACTS:
     // cleanup should call unloadModel() before dispose().
     unawaited(_disposeController());
     unawaited(_generationEventController.close());
+
+    if (_ownsWebSearchService) {
+      _webSearchService.dispose();
+    }
 
     super.dispose();
   }
