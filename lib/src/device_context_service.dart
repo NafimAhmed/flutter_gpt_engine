@@ -16,6 +16,8 @@ import 'device_context_config.dart';
 import 'device_context_models.dart';
 
 class DeviceContextService {
+  // Keep the public named parameter "config" stable for package users.
+  // ignore: prefer_initializing_formals
   DeviceContextService({
     DeviceContextConfig config = const DeviceContextConfig(),
   }) : _config = config;
@@ -411,6 +413,8 @@ class DeviceContextService {
     return <String, Object?>{
       'level percent': level,
       'state': state.name,
+      // Keep explicit conditional syntax for compatibility/readability.
+      // ignore: use_null_aware_elements
       if (saver != null) 'battery saver': saver,
     };
   }
@@ -746,6 +750,7 @@ class DeviceContextService {
             if (data['wind_direction_10m'] != null)
               'wind direction degrees': data['wind_direction_10m'],
             if (weatherCode != null) 'weather code': weatherCode,
+            // ignore: use_null_aware_elements
             if (weatherCode != null)
               'condition': _weatherDescription(weatherCode),
             if (decoded['timezone'] != null)
