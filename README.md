@@ -1196,6 +1196,77 @@ final gpt = LocalLlmClient(
 );
 ```
 
+### 🧠 Context Size: Speed vs Memory
+
+`contextSize` controls how much text the local model can keep inside its active
+context window while generating a response.
+
+The default is:
+
+```dart
+LocalLlmConfig(
+  contextSize: 4096,
+)
+```
+
+You can change it to any value supported by your GGUF model and device:
+
+```dart
+final gpt = LocalLlmClient(
+  config: const LocalLlmConfig(
+    contextSize: 2048,
+  ),
+);
+```
+
+Or use a larger context:
+
+```dart
+final gpt = LocalLlmClient(
+  config: const LocalLlmConfig(
+    contextSize: 8192,
+  ),
+);
+```
+
+#### Which value should I use?
+
+| Context size | Best for | Speed / memory |
+|---|---|---|
+| `2048` | Fast mobile chat, short Q&A, commands | ⚡ Faster, lower RAM |
+| `4096` | General-purpose chat | ✅ Balanced — default |
+| `8192+` | Long conversations, large prompts, documents | 🧠 More context, more RAM, potentially slower |
+
+A smaller context can reduce KV-cache memory usage and may improve response
+startup time on mobile devices.
+
+A larger context gives the model more room for conversation history, long
+prompts, web-grounded context, or document content, but it requires more memory
+and can increase prompt-processing time.
+
+> **Recommended:** Keep `4096` unless you have a specific reason to change it.
+> If response speed is the priority, try `2048`. If long-context quality is
+> more important and the device has enough RAM, try `8192` or higher.
+
+#### Important
+
+`contextSize` is a maximum context capacity. Setting it to `4096` does **not**
+mean the engine processes 4096 tokens for every request. A short prompt still
+processes only the tokens it actually contains.
+
+Very large values are not automatically better. The usable maximum depends on:
+
+- the GGUF model
+- available device RAM
+- native backend support
+- conversation history size
+- prompt / web / device context size
+
+For mobile apps, benchmark the real device instead of assuming that a larger
+context is always better.
+
+---
+
 ### Important options
 
 | Option | Purpose |
