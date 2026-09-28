@@ -130,7 +130,7 @@ Add the package to your Flutter project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.8
+  flutter_gpt_engine: ^0.0.9
 ```
 
 Then run:
@@ -163,6 +163,95 @@ final gpt = LocalLlmClient(
 ```
 
 ---
+
+
+## ⚡ Performance Profiles and Phase 1 Optimization
+
+The normal `LocalLlmConfig()` defaults remain backward compatible. Existing apps can upgrade without changing their setup.
+
+For an opt-in preset:
+
+```dart
+final gpt = LocalLlmClient(
+  config: LocalLlmConfig.preset(
+    LocalLlmPerformanceMode.balanced,
+  ),
+);
+```
+
+Available presets:
+
+| Preset | Context | Output | History strategy |
+| --- | ---: | ---: | --- |
+| `fast` | 2048 | 256 tokens | Smaller token-aware history |
+| `balanced` | 4096 | 384 tokens | General mobile default |
+| `quality` | 8192 | 512 tokens | Larger context for capable devices |
+
+Presets enable token-aware context management using the context estimator from the native inference dependency. The engine can reduce the requested output length near the safe context limit instead of unnecessarily overflowing the context window.
+
+### More stable benchmarking
+
+Benchmarks now support warm-up runs and return median measurements across multiple runs:
+
+```dart
+final result = await gpt.benchmark(
+  warmupRuns: 1,
+  measuredRuns: 3,
+);
+
+print(result.timeToFirstToken);
+print(result.tokensPerSecond);
+print(result.runTokensPerSecond);
+```
+
+The default benchmark policy is one warm-up plus three measured runs. You can configure package-wide defaults with `benchmarkWarmupRuns` and `benchmarkRuns`.
+
+### Persistent auto-tuning
+
+After a successful `autoTune()`, the selected CPU/GPU profile is saved in Application Support by default. When the same GGUF file is loaded again with the same context size, the engine restores that profile automatically.
+
+```dart
+final tuned = await gpt.autoTune();
+
+print(tuned.threads);
+print(tuned.gpuLayers);
+```
+
+To disable persistence:
+
+```dart
+const LocalLlmConfig(
+  persistAutoTuneProfile: false,
+);
+```
+
+To clear saved profiles:
+
+```dart
+await gpt.clearPersistedAutoTuneProfiles();
+
+// Or only one model:
+await gpt.clearPersistedAutoTuneProfiles(
+  modelPath: '/storage/emulated/0/Download/model.gguf',
+);
+```
+
+### Verify real GPU benefit
+
+GPU detection alone does not tell you how much acceleration a particular model/device receives. Compare CPU-only inference against the recommended GPU offload without permanently changing the current runtime profile:
+
+```dart
+final verification = await gpt.verifyGpuAcceleration();
+
+print('Vulkan: ${verification.vulkanSupported}');
+print('GPU layers: ${verification.recommendedGpuLayers}');
+print('CPU tok/s: ${verification.cpu.tokensPerSecond}');
+print('GPU tok/s: ${verification.gpu?.tokensPerSecond}');
+print('Decode speedup: ${verification.decodeSpeedup}');
+```
+
+---
+
 
 ## 📂 2. Let the User Pick a GGUF Model
 
@@ -281,11 +370,11 @@ Web search is **optional**. Local GGUF inference still works without internet ac
 
 To enable web search, follow these steps.
 
-### 1. Use `flutter_gpt_engine: ^0.0.8`
+### 1. Use `flutter_gpt_engine: ^0.0.7`
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.8
+  flutter_gpt_engine: ^0.0.7
 ```
 
 Then run:

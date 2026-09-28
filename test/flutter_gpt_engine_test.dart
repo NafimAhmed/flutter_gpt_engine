@@ -42,6 +42,88 @@ void main() {
     expect(config.maxHistoryCharacters, 6000);
   });
 
+  test('default config preserves pre-phase-1 generation behaviour', () {
+    const config = LocalLlmConfig();
+
+    expect(config.maxHistoryTokens, 0);
+    expect(config.tokenAwareContextManagement, isFalse);
+    expect(config.contextSize, 4096);
+    expect(config.maxTokens, 384);
+    expect(config.persistAutoTuneProfile, isTrue);
+  });
+
+  test('performance presets provide opt-in mobile tuning', () {
+    final fast = LocalLlmConfig.preset(LocalLlmPerformanceMode.fast);
+    final balanced = LocalLlmConfig.preset(LocalLlmPerformanceMode.balanced);
+    final quality = LocalLlmConfig.preset(LocalLlmPerformanceMode.quality);
+
+    expect(fast.contextSize, 2048);
+    expect(fast.maxTokens, 256);
+    expect(fast.tokenAwareContextManagement, isTrue);
+
+    expect(balanced.contextSize, 4096);
+    expect(balanced.maxHistoryTokens, 2200);
+
+    expect(quality.contextSize, 8192);
+    expect(quality.maxTokens, 512);
+  });
+
+  test('benchmark diagnostics remain backwards compatible', () {
+    const result = LocalLlmBenchmarkResult(
+      threads: 4,
+      gpuLayers: 0,
+      timeToFirstToken: Duration(milliseconds: 100),
+      totalDuration: Duration(seconds: 1),
+      decodeDuration: Duration(milliseconds: 900),
+      generatedTokenCount: 20,
+      generatedCharacters: 80,
+      tokensPerSecond: 21.1,
+      score: 20.0,
+      warmupRuns: 1,
+      measuredRuns: 3,
+      runTokensPerSecond: <double>[20.0, 21.1, 22.0],
+    );
+
+    expect(result.warmupRuns, 1);
+    expect(result.measuredRuns, 3);
+    expect(result.runTokensPerSecond.length, 3);
+  });
+
+  test('GPU verification result exposes measured speedup', () {
+    const cpu = LocalLlmBenchmarkResult(
+      threads: 4,
+      gpuLayers: 0,
+      timeToFirstToken: Duration(milliseconds: 200),
+      totalDuration: Duration(seconds: 2),
+      decodeDuration: Duration(milliseconds: 1800),
+      generatedTokenCount: 32,
+      generatedCharacters: 120,
+      tokensPerSecond: 10,
+      score: 9,
+    );
+    const gpu = LocalLlmBenchmarkResult(
+      threads: 4,
+      gpuLayers: 16,
+      timeToFirstToken: Duration(milliseconds: 150),
+      totalDuration: Duration(seconds: 1),
+      decodeDuration: Duration(milliseconds: 850),
+      generatedTokenCount: 32,
+      generatedCharacters: 120,
+      tokensPerSecond: 20,
+      score: 18,
+    );
+    const result = LocalLlmGpuVerificationResult(
+      vulkanSupported: true,
+      recommendedGpuLayers: 16,
+      cpu: cpu,
+      gpu: gpu,
+    );
+
+    expect(result.gpuLoadSucceeded, isTrue);
+    expect(result.decodeSpeedup, 2.0);
+    expect(result.scoreSpeedup, 2.0);
+  });
+
   group('LocalLlmThinkParser', () {
     test('parses split think tags incrementally', () {
       final parser = LocalLlmThinkParser();
