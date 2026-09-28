@@ -130,7 +130,7 @@ Add the package to your Flutter project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.8
+  flutter_gpt_engine: ^0.0.9
 ```
 
 Then run:
