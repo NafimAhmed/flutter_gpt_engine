@@ -10,6 +10,9 @@ class LocalLlmBenchmarkResult {
     required this.generatedCharacters,
     required this.tokensPerSecond,
     required this.score,
+    this.warmupRuns = 0,
+    this.measuredRuns = 1,
+    this.runTokensPerSecond = const <double>[],
   });
 
   final int threads;
@@ -24,20 +27,25 @@ class LocalLlmBenchmarkResult {
   /// Time spent decoding after the first token arrived.
   final Duration decodeDuration;
 
-  /// Number of native token callbacks received from llama.cpp.
+  /// Median number of native token callbacks received from llama.cpp.
   final int generatedTokenCount;
 
   final int generatedCharacters;
 
-  /// Decode throughput after the first token. For a one-token response this
-  /// falls back to total generation throughput.
+  /// Median decode throughput after the first token.
   final double tokensPerSecond;
 
   /// Internal selection score used by LocalLlmClient.autoTune.
-  ///
-  /// Higher is better. It primarily rewards decode throughput while applying
-  /// a small penalty to slow time-to-first-token.
   final double score;
+
+  /// Number of unmeasured warm-up runs performed before measurement.
+  final int warmupRuns;
+
+  /// Number of measured runs included in this median result.
+  final int measuredRuns;
+
+  /// Per-run decode throughput values, useful for diagnostics.
+  final List<double> runTokensPerSecond;
 
   @override
   String toString() {
@@ -47,6 +55,7 @@ class LocalLlmBenchmarkResult {
         'ttftMs: ${timeToFirstToken.inMilliseconds}, '
         'tokens: $generatedTokenCount, '
         'tokensPerSecond: ${tokensPerSecond.toStringAsFixed(2)}, '
+        'runs: $measuredRuns, '
         'score: ${score.toStringAsFixed(2)})';
   }
 }
@@ -57,12 +66,46 @@ class LocalLlmAutoTuneResult {
     required this.selected,
     required this.candidates,
     required this.logicalProcessors,
+    this.restoredFromPersistentProfile = false,
   });
 
   final LocalLlmBenchmarkResult selected;
   final List<LocalLlmBenchmarkResult> candidates;
   final int logicalProcessors;
 
+  /// True only for diagnostics when a caller receives a result restored from
+  /// persistent storage rather than newly benchmarked candidates.
+  final bool restoredFromPersistentProfile;
+
   int get threads => selected.threads;
   int get gpuLayers => selected.gpuLayers;
+}
+
+/// Diagnostic comparison between CPU-only and GPU-offloaded inference.
+class LocalLlmGpuVerificationResult {
+  const LocalLlmGpuVerificationResult({
+    required this.vulkanSupported,
+    required this.recommendedGpuLayers,
+    required this.cpu,
+    required this.gpu,
+  });
+
+  final bool vulkanSupported;
+  final int recommendedGpuLayers;
+  final LocalLlmBenchmarkResult cpu;
+  final LocalLlmBenchmarkResult? gpu;
+
+  bool get gpuLoadSucceeded => gpu != null;
+
+  double? get decodeSpeedup {
+    final gpuResult = gpu;
+    if (gpuResult == null || cpu.tokensPerSecond <= 0) return null;
+    return gpuResult.tokensPerSecond / cpu.tokensPerSecond;
+  }
+
+  double? get scoreSpeedup {
+    final gpuResult = gpu;
+    if (gpuResult == null || cpu.score <= 0) return null;
+    return gpuResult.score / cpu.score;
+  }
 }
