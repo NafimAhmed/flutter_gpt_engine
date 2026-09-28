@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -181,6 +182,12 @@ class LocalLlmClient extends ChangeNotifier {
         _runtimeThreads = null;
         _runtimeGpuLayers = null;
         _tunedModelPath = null;
+      }
+
+      if (_runtimeThreads == null &&
+          _runtimeGpuLayers == null &&
+          config.persistAutoTuneProfile) {
+        await _restorePersistentPerformanceProfile(modelPath);
       }
 
       final requestedThreads = _resolveRequestedThreads();
@@ -533,6 +540,8 @@ class LocalLlmClient extends ChangeNotifier {
     String prompt =
         'Write the numbers from 1 to 100, separated by spaces, with no explanation.',
     int maxTokens = 48,
+    int? warmupRuns,
+    int? measuredRuns,
   }) async {
     _ensureNotDisposed();
 
@@ -556,6 +565,8 @@ class LocalLlmClient extends ChangeNotifier {
         maxTokens: maxTokens,
         threads: _activeThreads,
         gpuLayers: _activeGpuLayers,
+        warmupRuns: warmupRuns,
+        measuredRuns: measuredRuns,
       );
     } finally {
       _isGenerating = false;
@@ -715,6 +726,13 @@ class LocalLlmClient extends ChangeNotifier {
         threads: selected.threads,
         gpuLayers: selected.gpuLayers,
       );
+
+      if (config.persistAutoTuneProfile) {
+        await _persistPerformanceProfile(
+          currentModel.path,
+          selected,
+        );
+      }
 
       _status = 'Ready';
 
@@ -1021,6 +1039,8 @@ STRICT RULES:
         ),
       ];
 
+      final effectiveMaxTokens = _resolveGenerationMaxTokens(chatMessages);
+
       await _llama.clearContext();
 
       final stream = _llama.generateChat(
@@ -1029,7 +1049,7 @@ STRICT RULES:
         topP: config.topP,
         topK: config.topK,
         repeatPenalty: config.repeatPenalty,
-        maxTokens: config.maxTokens,
+        maxTokens: effectiveMaxTokens,
       );
 
       final parser = LocalLlmThinkParser();
@@ -1488,67 +1508,151 @@ ANSWER USING ONLY THE LIVE WEB DATA FOR CURRENT FACTS:
       return const <LocalLlmMessage>[];
     }
 
-    // The current user/assistant pair has not been appended yet when this
-    // method is called.
     final messageStart =
         _messages.length > config.maxHistoryMessages
             ? _messages.length - config.maxHistoryMessages
             : 0;
 
-    final candidates = _messages
+    var candidates = _messages
         .sublist(messageStart)
         .where(
           (message) =>
               message.text.trim().isNotEmpty &&
               (message.role == 'user' || message.role == 'assistant'),
         )
+        .map((message) => message.copy())
         .toList();
 
+    if (candidates.isEmpty) {
+      return const <LocalLlmMessage>[];
+    }
+
     final characterBudget = config.maxHistoryCharacters;
-    if (characterBudget <= 0 || candidates.isEmpty) {
-      return candidates.map((message) => message.copy()).toList();
+    if (characterBudget > 0) {
+      var usedCharacters = 0;
+      var start = candidates.length;
+
+      for (var i = candidates.length - 1; i >= 0; i--) {
+        final nextLength = candidates[i].text.length;
+        if (usedCharacters + nextLength > characterBudget) break;
+        usedCharacters += nextLength;
+        start = i;
+      }
+
+      if (start >= candidates.length) {
+        final latest = candidates.last;
+        final text = latest.text.length <= characterBudget
+            ? latest.text
+            : latest.text.substring(latest.text.length - characterBudget);
+
+        candidates = <LocalLlmMessage>[
+          LocalLlmMessage(
+            role: latest.role,
+            text: text,
+            createdAt: latest.createdAt,
+          ),
+        ];
+      } else {
+        if (candidates[start].role == 'assistant' &&
+            start + 1 < candidates.length) {
+          start++;
+        }
+        candidates = candidates.sublist(start);
+      }
     }
 
-    var usedCharacters = 0;
-    var start = candidates.length;
+    final tokenBudget = config.maxHistoryTokens;
+    if (tokenBudget <= 0 || candidates.isEmpty) {
+      return candidates;
+    }
 
-    // Keep a contiguous suffix so recent conversational order is preserved.
+    final helper = ContextHelper(contextSize: config.contextSize);
+    var usedTokens = 0;
+    var tokenStart = candidates.length;
+
     for (var i = candidates.length - 1; i >= 0; i--) {
-      final nextLength = candidates[i].text.length;
-      if (usedCharacters + nextLength > characterBudget) break;
-
-      usedCharacters += nextLength;
-      start = i;
+      final nextTokens = helper.estimateTokens(candidates[i].text) + 4;
+      if (usedTokens + nextTokens > tokenBudget) break;
+      usedTokens += nextTokens;
+      tokenStart = i;
     }
 
-    if (start >= candidates.length) {
-      // A single latest message can exceed the budget. Keep its tail rather
-      // than dropping the most relevant context completely.
+    if (tokenStart >= candidates.length) {
       final latest = candidates.last;
-      final text = latest.text.length <= characterBudget
-          ? latest.text
-          : latest.text.substring(latest.text.length - characterBudget);
+      final trimmed = _trimTextToEstimatedTokens(
+        latest.text,
+        tokenBudget > 4 ? tokenBudget - 4 : tokenBudget,
+        helper,
+      );
+
+      if (trimmed.isEmpty) {
+        return const <LocalLlmMessage>[];
+      }
 
       return <LocalLlmMessage>[
         LocalLlmMessage(
           role: latest.role,
-          text: text,
+          text: trimmed,
           createdAt: latest.createdAt,
         ),
       ];
     }
 
-    // Avoid starting the history with an orphaned assistant response when a
-    // character boundary cuts between a user/assistant pair.
-    if (candidates[start].role == 'assistant' &&
-        start + 1 < candidates.length) {
-      start++;
+    if (candidates[tokenStart].role == 'assistant' &&
+        tokenStart + 1 < candidates.length) {
+      tokenStart++;
     }
 
-    return candidates
-        .sublist(start)
-        .map((message) => message.copy())
-        .toList();
+    return candidates.sublist(tokenStart);
+  }
+
+  String _trimTextToEstimatedTokens(
+    String text,
+    int tokenBudget,
+    ContextHelper helper,
+  ) {
+    if (text.isEmpty || tokenBudget <= 0) return '';
+    if (helper.estimateTokens(text) <= tokenBudget) return text;
+
+    var low = 1;
+    var high = text.length;
+    var bestStart = text.length;
+
+    while (low <= high) {
+      final keep = (low + high) ~/ 2;
+      final start = text.length - keep;
+      final candidate = text.substring(start);
+      final tokens = helper.estimateTokens(candidate);
+
+      if (tokens <= tokenBudget) {
+        bestStart = start;
+        low = keep + 1;
+      } else {
+        high = keep - 1;
+      }
+    }
+
+    return bestStart < text.length ? text.substring(bestStart) : '';
+  }
+
+  int _resolveGenerationMaxTokens(List<ChatMessage> messages) {
+    if (!config.tokenAwareContextManagement) {
+      return config.maxTokens;
+    }
+
+    final helper = ContextHelper(contextSize: config.contextSize);
+    var tokensUsed = 0;
+
+    for (final message in messages) {
+      tokensUsed += helper.estimateTokens(message.content) + 4;
+    }
+
+    final safe = helper.calculateSafeMaxTokens(
+      tokensUsed,
+      config.maxTokens,
+    );
+
+    return safe > 0 ? safe : 1;
   }
 
   int _resolveRequestedThreads() {
@@ -1629,6 +1733,85 @@ ANSWER USING ONLY THE LIVE WEB DATA FOR CURRENT FACTS:
     required int maxTokens,
     required int threads,
     required int gpuLayers,
+    int? warmupRuns,
+    int? measuredRuns,
+  }) async {
+    final resolvedWarmups = warmupRuns ?? config.benchmarkWarmupRuns;
+    final resolvedMeasuredRuns = measuredRuns ?? config.benchmarkRuns;
+
+    if (resolvedWarmups < 0) {
+      throw ArgumentError.value(
+        resolvedWarmups,
+        'warmupRuns',
+        'Must be zero or greater.',
+      );
+    }
+    if (resolvedMeasuredRuns <= 0) {
+      throw ArgumentError.value(
+        resolvedMeasuredRuns,
+        'measuredRuns',
+        'Must be positive.',
+      );
+    }
+
+    for (var i = 0; i < resolvedWarmups; i++) {
+      await _runSingleBenchmark(
+        prompt: prompt,
+        maxTokens: maxTokens,
+        threads: threads,
+        gpuLayers: gpuLayers,
+      );
+    }
+
+    final samples = <LocalLlmBenchmarkResult>[];
+    for (var i = 0; i < resolvedMeasuredRuns; i++) {
+      samples.add(
+        await _runSingleBenchmark(
+          prompt: prompt,
+          maxTokens: maxTokens,
+          threads: threads,
+          gpuLayers: gpuLayers,
+        ),
+      );
+    }
+
+    return LocalLlmBenchmarkResult(
+      threads: threads,
+      gpuLayers: gpuLayers,
+      timeToFirstToken: _medianDuration(
+        samples.map((sample) => sample.timeToFirstToken).toList(),
+      ),
+      totalDuration: _medianDuration(
+        samples.map((sample) => sample.totalDuration).toList(),
+      ),
+      decodeDuration: _medianDuration(
+        samples.map((sample) => sample.decodeDuration).toList(),
+      ),
+      generatedTokenCount: _medianInt(
+        samples.map((sample) => sample.generatedTokenCount).toList(),
+      ),
+      generatedCharacters: _medianInt(
+        samples.map((sample) => sample.generatedCharacters).toList(),
+      ),
+      tokensPerSecond: _medianDouble(
+        samples.map((sample) => sample.tokensPerSecond).toList(),
+      ),
+      score: _medianDouble(
+        samples.map((sample) => sample.score).toList(),
+      ),
+      warmupRuns: resolvedWarmups,
+      measuredRuns: resolvedMeasuredRuns,
+      runTokensPerSecond: List<double>.unmodifiable(
+        samples.map((sample) => sample.tokensPerSecond),
+      ),
+    );
+  }
+
+  Future<LocalLlmBenchmarkResult> _runSingleBenchmark({
+    required String prompt,
+    required int maxTokens,
+    required int threads,
+    required int gpuLayers,
   }) async {
     await _llama.clearContext();
 
@@ -1687,7 +1870,6 @@ ANSWER USING ONLY THE LIVE WEB DATA FOR CURRENT FACTS:
       tokensPerSecond = seconds > 0 ? tokenCount / seconds : 0.0;
     }
 
-    // Prefer decode throughput while modestly penalizing slow prompt startup.
     final score =
         tokensPerSecond / (1.0 + (ttft.inMilliseconds / 2000.0));
 
@@ -1702,6 +1884,259 @@ ANSWER USING ONLY THE LIVE WEB DATA FOR CURRENT FACTS:
       tokensPerSecond: tokensPerSecond,
       score: score,
     );
+  }
+
+  double _medianDouble(List<double> values) {
+    final sorted = List<double>.from(values)..sort();
+    final middle = sorted.length ~/ 2;
+    if (sorted.length.isOdd) return sorted[middle];
+    return (sorted[middle - 1] + sorted[middle]) / 2.0;
+  }
+
+  int _medianInt(List<int> values) {
+    final sorted = List<int>.from(values)..sort();
+    final middle = sorted.length ~/ 2;
+    if (sorted.length.isOdd) return sorted[middle];
+    return ((sorted[middle - 1] + sorted[middle]) / 2.0).round();
+  }
+
+  Duration _medianDuration(List<Duration> values) {
+    return Duration(
+      microseconds: _medianInt(
+        values.map((value) => value.inMicroseconds).toList(),
+      ),
+    );
+  }
+
+  Future<void> _restorePersistentPerformanceProfile(String modelPath) async {
+    try {
+      final store = await _readPerformanceProfileStore();
+      final profiles = store['profiles'];
+      if (profiles is! Map<String, dynamic>) return;
+
+      final key = await _performanceProfileKey(modelPath);
+      final raw = profiles[key];
+      if (raw is! Map<String, dynamic>) return;
+
+      final threads = raw['threads'];
+      final gpuLayers = raw['gpuLayers'];
+
+      if (threads is! int || threads <= 0 || gpuLayers is! int || gpuLayers < 0) {
+        return;
+      }
+
+      _runtimeThreads = threads;
+      _runtimeGpuLayers = gpuLayers;
+      _tunedModelPath = modelPath;
+    } catch (error) {
+      debugPrint(
+        'Flutter_GPT_Engine: persisted performance profile ignored: $error',
+      );
+    }
+  }
+
+  Future<void> _persistPerformanceProfile(
+    String modelPath,
+    LocalLlmBenchmarkResult selected,
+  ) async {
+    try {
+      final store = await _readPerformanceProfileStore();
+      final profiles = <String, dynamic>{};
+
+      final existing = store['profiles'];
+      if (existing is Map<String, dynamic>) {
+        profiles.addAll(existing);
+      }
+
+      final key = await _performanceProfileKey(modelPath);
+      profiles[key] = <String, dynamic>{
+        'threads': selected.threads,
+        'gpuLayers': selected.gpuLayers,
+        'tokensPerSecond': selected.tokensPerSecond,
+        'score': selected.score,
+        'contextSize': config.contextSize,
+        'updatedAt': DateTime.now().toUtc().toIso8601String(),
+      };
+
+      final output = <String, dynamic>{
+        'version': 1,
+        'profiles': profiles,
+      };
+
+      final file = await _performanceProfileStoreFile();
+      await file.writeAsString(jsonEncode(output), flush: true);
+    } catch (error) {
+      debugPrint(
+        'Flutter_GPT_Engine: could not persist performance profile: $error',
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> _readPerformanceProfileStore() async {
+    final file = await _performanceProfileStoreFile();
+    if (!await file.exists()) {
+      return <String, dynamic>{
+        'version': 1,
+        'profiles': <String, dynamic>{},
+      };
+    }
+
+    try {
+      final raw = await file.readAsString();
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {}
+
+    return <String, dynamic>{
+      'version': 1,
+      'profiles': <String, dynamic>{},
+    };
+  }
+
+  Future<File> _performanceProfileStoreFile() async {
+    final support = await getApplicationSupportDirectory();
+    final directory = Directory(
+      '${support.path}${Platform.pathSeparator}flutter_gpt_engine',
+    );
+
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+    }
+
+    return File(
+      '${directory.path}${Platform.pathSeparator}performance_profiles.json',
+    );
+  }
+
+  Future<String> _performanceProfileKey(String modelPath) async {
+    final file = File(modelPath);
+    final length = await file.length();
+    final modified = await file.lastModified();
+
+    return '$modelPath|$length|${modified.millisecondsSinceEpoch}|'
+        '${config.contextSize}';
+  }
+
+  /// Removes persisted auto-tune data.
+  ///
+  /// When [modelPath] is null every saved model profile is removed.
+  Future<void> clearPersistedAutoTuneProfiles({String? modelPath}) async {
+    _ensureNotDisposed();
+
+    final file = await _performanceProfileStoreFile();
+    if (!await file.exists()) return;
+
+    if (modelPath == null) {
+      await file.delete();
+      return;
+    }
+
+    final store = await _readPerformanceProfileStore();
+    final profiles = store['profiles'];
+    if (profiles is! Map<String, dynamic>) return;
+
+    final key = await _performanceProfileKey(modelPath);
+    profiles.remove(key);
+
+    await file.writeAsString(
+      jsonEncode(<String, dynamic>{
+        'version': 1,
+        'profiles': profiles,
+      }),
+      flush: true,
+    );
+  }
+
+  /// Compares CPU-only inference with the backend's recommended GPU offload.
+  ///
+  /// The previously active runtime profile is always restored before returning.
+  Future<LocalLlmGpuVerificationResult> verifyGpuAcceleration({
+    String prompt =
+        'Write the numbers from 1 to 100, separated by spaces, with no explanation.',
+    int maxTokens = 48,
+    int? warmupRuns,
+    int? measuredRuns,
+  }) async {
+    _ensureNotDisposed();
+
+    final currentModel = _model;
+    if (!_isLoaded || currentModel == null) {
+      throw StateError('Load a GGUF model before GPU verification.');
+    }
+    if (_isGenerating || _isSearchingWeb || _isLoading) {
+      throw StateError('The engine is busy.');
+    }
+
+    final originalThreads =
+        _activeThreads > 0 ? _activeThreads : _resolveRequestedThreads();
+    final originalGpuLayers = _activeGpuLayers;
+    final gpuInfo = await _llama.detectGpu();
+
+    _isLoading = true;
+    _status = 'Verifying CPU/GPU inference...';
+    _safeNotify();
+
+    try {
+      await _reloadModelForPerformance(
+        currentModel,
+        threads: originalThreads,
+        gpuLayers: 0,
+      );
+
+      final cpu = await _runBenchmark(
+        prompt: prompt,
+        maxTokens: maxTokens,
+        threads: originalThreads,
+        gpuLayers: 0,
+        warmupRuns: warmupRuns,
+        measuredRuns: measuredRuns,
+      );
+
+      LocalLlmBenchmarkResult? gpu;
+      final recommended = gpuInfo.recommendedGpuLayers;
+
+      if (gpuInfo.vulkanSupported && recommended > 0) {
+        try {
+          await _reloadModelForPerformance(
+            currentModel,
+            threads: originalThreads,
+            gpuLayers: recommended,
+          );
+
+          gpu = await _runBenchmark(
+            prompt: prompt,
+            maxTokens: maxTokens,
+            threads: originalThreads,
+            gpuLayers: recommended,
+            warmupRuns: warmupRuns,
+            measuredRuns: measuredRuns,
+          );
+        } catch (error) {
+          debugPrint(
+            'Flutter_GPT_Engine: GPU verification candidate failed: $error',
+          );
+        }
+      }
+
+      return LocalLlmGpuVerificationResult(
+        vulkanSupported: gpuInfo.vulkanSupported,
+        recommendedGpuLayers: recommended,
+        cpu: cpu,
+        gpu: gpu,
+      );
+    } finally {
+      try {
+        await _reloadModelForPerformance(
+          currentModel,
+          threads: originalThreads,
+          gpuLayers: originalGpuLayers,
+        );
+      } catch (_) {}
+
+      _isLoading = false;
+      _status = _isLoaded ? 'Ready' : _status;
+      _safeNotify();
+    }
   }
 
   Future<void> _validateGgufFile(File file) async {
