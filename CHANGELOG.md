@@ -1,3 +1,12 @@
+## 0.0.8
+
+- Added opt-in Fast, Balanced, and Quality mobile performance presets.
+- Added token-aware history budgeting and safe output-token sizing.
+- Added warm-up plus median multi-run benchmarking for more stable tuning.
+- Added persistent auto-tune profiles restored for the same GGUF model.
+- Added CPU-vs-GPU verification diagnostics without changing the active profile.
+- Preserved the existing default generation configuration and public APIs.
+
 ## 0.0.7
 
 - Reduced token-stream parsing allocations with an incremental reasoning parser.
