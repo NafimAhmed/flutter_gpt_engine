@@ -1,3 +1,9 @@
+enum LocalLlmPerformanceMode {
+  fast,
+  balanced,
+  quality,
+}
+
 class LocalLlmConfig {
   const LocalLlmConfig({
     this.systemPrompt = 'You are a helpful AI assistant.',
@@ -11,8 +17,56 @@ class LocalLlmConfig {
     this.maxTokens = 384,
     this.maxHistoryMessages = 8,
     this.maxHistoryCharacters = 12000,
+    this.maxHistoryTokens = 0,
+    this.tokenAwareContextManagement = false,
+    this.persistAutoTuneProfile = true,
+    this.benchmarkWarmupRuns = 1,
+    this.benchmarkRuns = 3,
     this.showThinking = false,
+    this.performanceMode,
   });
+
+  /// Creates a ready-made mobile performance profile.
+  ///
+  /// Existing callers do not need to use this API. The default constructor
+  /// keeps the package's existing behaviour unchanged.
+  factory LocalLlmConfig.preset(LocalLlmPerformanceMode mode) {
+    switch (mode) {
+      case LocalLlmPerformanceMode.fast:
+        return const LocalLlmConfig(
+          threads: 0,
+          contextSize: 2048,
+          maxTokens: 256,
+          maxHistoryMessages: 6,
+          maxHistoryCharacters: 6000,
+          maxHistoryTokens: 900,
+          tokenAwareContextManagement: true,
+          performanceMode: LocalLlmPerformanceMode.fast,
+        );
+      case LocalLlmPerformanceMode.balanced:
+        return const LocalLlmConfig(
+          threads: 0,
+          contextSize: 4096,
+          maxTokens: 384,
+          maxHistoryMessages: 8,
+          maxHistoryCharacters: 12000,
+          maxHistoryTokens: 2200,
+          tokenAwareContextManagement: true,
+          performanceMode: LocalLlmPerformanceMode.balanced,
+        );
+      case LocalLlmPerformanceMode.quality:
+        return const LocalLlmConfig(
+          threads: 0,
+          contextSize: 8192,
+          maxTokens: 512,
+          maxHistoryMessages: 12,
+          maxHistoryCharacters: 24000,
+          maxHistoryTokens: 5200,
+          tokenAwareContextManagement: true,
+          performanceMode: LocalLlmPerformanceMode.quality,
+        );
+    }
+  }
 
   final String systemPrompt;
 
@@ -41,10 +95,28 @@ class LocalLlmConfig {
 
   /// Maximum combined character count kept from recent history.
   ///
-  /// This is a lightweight context guard for mobile devices. It complements
-  /// [maxHistoryMessages] and avoids repeatedly re-processing very large
-  /// previous messages. Set to 0 to disable the character budget.
+  /// This guard remains available for complete backward compatibility.
   final int maxHistoryCharacters;
+
+  /// Optional estimated-token budget for recent conversation history.
+  ///
+  /// A value <= 0 disables token-based trimming. Presets enable this using the
+  /// same ContextHelper estimator exposed by llama_flutter_android.
+  final int maxHistoryTokens;
+
+  /// When true, generation estimates prompt usage and reduces maxTokens when
+  /// needed to stay inside the native backend's safe context window.
+  final bool tokenAwareContextManagement;
+
+  /// Persist successful autoTune profiles in Application Support and restore
+  /// them automatically for the same GGUF file on later app launches.
+  final bool persistAutoTuneProfile;
+
+  /// Number of unmeasured warm-up runs for benchmark/autoTune candidates.
+  final int benchmarkWarmupRuns;
+
+  /// Number of measured benchmark runs. Median values are returned.
+  final int benchmarkRuns;
 
   /// When true, model output inside `<think>...</think>` or
   /// `<analysis>...</analysis>` is exposed through LocalLlmClient.thinkingText
@@ -54,6 +126,9 @@ class LocalLlmConfig {
   /// starts, thinkingText is cleared so host UIs can automatically replace the
   /// thinking panel with the final answer.
   final bool showThinking;
+
+  /// Non-null when this config was created from [LocalLlmConfig.preset].
+  final LocalLlmPerformanceMode? performanceMode;
 
   LocalLlmConfig copyWith({
     String? systemPrompt,
@@ -68,7 +143,14 @@ class LocalLlmConfig {
     int? maxTokens,
     int? maxHistoryMessages,
     int? maxHistoryCharacters,
+    int? maxHistoryTokens,
+    bool? tokenAwareContextManagement,
+    bool? persistAutoTuneProfile,
+    int? benchmarkWarmupRuns,
+    int? benchmarkRuns,
     bool? showThinking,
+    LocalLlmPerformanceMode? performanceMode,
+    bool clearPerformanceMode = false,
   }) {
     return LocalLlmConfig(
       systemPrompt: systemPrompt ?? this.systemPrompt,
@@ -83,7 +165,17 @@ class LocalLlmConfig {
       maxHistoryMessages: maxHistoryMessages ?? this.maxHistoryMessages,
       maxHistoryCharacters:
           maxHistoryCharacters ?? this.maxHistoryCharacters,
+      maxHistoryTokens: maxHistoryTokens ?? this.maxHistoryTokens,
+      tokenAwareContextManagement:
+          tokenAwareContextManagement ?? this.tokenAwareContextManagement,
+      persistAutoTuneProfile:
+          persistAutoTuneProfile ?? this.persistAutoTuneProfile,
+      benchmarkWarmupRuns: benchmarkWarmupRuns ?? this.benchmarkWarmupRuns,
+      benchmarkRuns: benchmarkRuns ?? this.benchmarkRuns,
       showThinking: showThinking ?? this.showThinking,
+      performanceMode: clearPerformanceMode
+          ? null
+          : (performanceMode ?? this.performanceMode),
     );
   }
 }
