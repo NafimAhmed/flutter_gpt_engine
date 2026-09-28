@@ -1835,7 +1835,7 @@ No cloud API dependency for inference.
 
 Just a reusable Flutter engine for running compatible GGUF language models locally.
 
-With `0.0.4`, the engine added optional fresh public web retrieval. With `0.0.6`, it can also expose model-emitted thinking, automatically fall back to web retrieval when the local model cannot answer, and optionally provide device-aware context while keeping the host application in control.
+With `0.0.9`, the engine added optional fresh public web retrieval. With `0.0.9`, it can also expose model-emitted thinking, automatically fall back to web retrieval when the local model cannot answer, and optionally provide device-aware context while keeping the host application in control.
 
 ---
 
