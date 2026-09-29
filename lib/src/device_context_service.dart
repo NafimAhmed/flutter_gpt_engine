@@ -1,13 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:battery_plus/battery_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:geocoding/geocoding.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:system_info2/system_info2.dart';
@@ -33,7 +30,6 @@ class DeviceContextService {
   final DeviceInfoPlugin _deviceInfo = DeviceInfoPlugin();
   final Battery _battery = Battery();
   final Connectivity _connectivity = Connectivity();
-  final Geocoding _geocoding = Geocoding();
 
   final Map<String, _CacheEntry<Object?>> _cache =
       <String, _CacheEntry<Object?>>{};
@@ -47,37 +43,12 @@ class DeviceContextService {
     _lastSnapshot = null;
   }
 
-  /// Explicit permission request for host apps that expose a user-facing
-  /// "Enable device location" toggle. DeviceContextConfig never requires this
-  /// to be called when location is already granted.
-  Future<bool> requestLocationPermission() async {
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        return false;
-      }
+  /// Location access was removed in v0.0.10. This method is retained only
+  /// for source compatibility and never requests a system permission.
+  Future<bool> requestLocationPermission() async => false;
 
-      var permission = await Geolocator.checkPermission();
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      return permission == LocationPermission.always ||
-          permission == LocationPermission.whileInUse;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<bool> hasLocationPermission() async {
-    try {
-      final permission = await Geolocator.checkPermission();
-      return permission == LocationPermission.always ||
-          permission == LocationPermission.whileInUse;
-    } catch (_) {
-      return false;
-    }
-  }
+  /// Location access was removed in v0.0.10. Retained for source compatibility.
+  Future<bool> hasLocationPermission() async => false;
 
   /// Returns true for prompts that can be answered primarily from enabled
   /// device context. Local device context can then be preferred over a generic
@@ -106,13 +77,6 @@ class DeviceContextService {
       return true;
     }
 
-    if (intent.location && config.includeLocation) return true;
-
-    if (intent.localWeather &&
-        config.includeWeather &&
-        config.includeLocation) {
-      return true;
-    }
 
     if (intent.sensors &&
         (config.includeSensors || config.includeBarometer)) {
@@ -150,8 +114,7 @@ class DeviceContextService {
     final needBasic = always || intent.dateTime;
     final needDevice = always || intent.device;
     final needBattery = always || intent.battery;
-    final needNetwork = always || intent.network || intent.localWeather;
-    final needLocation = always || intent.location || intent.localWeather;
+    final needNetwork = always || intent.network;
     final needSensors = always || intent.sensors;
 
     if (needBasic) {
@@ -233,51 +196,6 @@ class DeviceContextService {
     }
 
     await Future.wait(futures);
-
-    Position? position;
-
-    if (needLocation &&
-        (config.includeLocation ||
-            config.includeAddress ||
-            config.includeWeather ||
-            config.includeAltitude ||
-            config.includeSpeed ||
-            config.includeHeading)) {
-      try {
-        position = await _getPosition();
-      } catch (error) {
-        warnings.add('location unavailable: $error');
-      }
-
-      if (position != null) {
-        if (config.includeLocation ||
-            config.includeAltitude ||
-            config.includeSpeed ||
-            config.includeHeading) {
-          location.addAll(_locationMap(position));
-        }
-
-        if (config.includeAddress) {
-          try {
-            address.addAll(
-              await _getAddress(position.latitude, position.longitude),
-            );
-          } catch (error) {
-            warnings.add('address unavailable: $error');
-          }
-        }
-
-        if (config.includeWeather && (always || intent.localWeather)) {
-          try {
-            weather.addAll(
-              await _getWeather(position.latitude, position.longitude),
-            );
-          } catch (error) {
-            warnings.add('weather unavailable: $error');
-          }
-        }
-      }
-    }
 
     final snapshot = DeviceContextSnapshot(
       capturedAt: DateTime.now(),
@@ -489,122 +407,6 @@ class DeviceContextService {
     };
   }
 
-  Future<Position?> _getPosition() {
-    return _cached<Position?>(
-      'location',
-      config.locationCacheDuration,
-      () async {
-        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-        if (!serviceEnabled) {
-          throw StateError('location service is disabled');
-        }
-
-        var permission = await Geolocator.checkPermission();
-
-        if (permission == LocationPermission.denied &&
-            config.requestLocationPermissionWhenNeeded) {
-          permission = await Geolocator.requestPermission();
-        }
-
-        if (permission == LocationPermission.denied) {
-          throw StateError(
-            'location permission is denied; request it from the host app',
-          );
-        }
-
-        if (permission == LocationPermission.deniedForever) {
-          throw StateError('location permission is permanently denied');
-        }
-
-        return Geolocator.getCurrentPosition(
-          locationSettings: LocationSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: config.locationTimeout,
-          ),
-        );
-      },
-    );
-  }
-
-  Map<String, Object?> _locationMap(Position position) {
-    final values = <String, Object?>{};
-
-    if (config.includeLocation) {
-      values['latitude'] = position.latitude;
-      values['longitude'] = position.longitude;
-      values['accuracy meters'] = position.accuracy;
-      values['location timestamp'] = position.timestamp.toIso8601String();
-    }
-
-    if (config.includeAltitude) {
-      values['altitude meters'] = position.altitude;
-    }
-
-    if (config.includeSpeed) {
-      values['speed m/s'] = position.speed;
-    }
-
-    if (config.includeHeading) {
-      values['heading degrees'] = position.heading;
-    }
-
-    return values;
-  }
-
-  Future<Map<String, Object?>> _getAddress(
-    double latitude,
-    double longitude,
-  ) {
-    final key =
-        'address:${latitude.toStringAsFixed(4)},${longitude.toStringAsFixed(4)}';
-
-    return _cached<Map<String, Object?>>(
-      key,
-      config.locationCacheDuration,
-      () async {
-        final placemarks = await _geocoding.placemarkFromCoordinates(
-          latitude,
-          longitude,
-        );
-
-        if (placemarks.isEmpty) {
-          return const <String, Object?>{};
-        }
-
-        final place = placemarks.first;
-
-        final full = <String?>[
-          place.street,
-          place.subLocality,
-          place.locality,
-          place.subAdministrativeArea,
-          place.administrativeArea,
-          place.postalCode,
-          place.country,
-        ]
-            .whereType<String>()
-            .map((value) => value.trim())
-            .where((value) => value.isNotEmpty)
-            .toSet()
-            .join(', ');
-
-        return <String, Object?>{
-          if ((place.locality ?? '').trim().isNotEmpty)
-            'city/locality': place.locality,
-          if ((place.subAdministrativeArea ?? '').trim().isNotEmpty)
-            'sub-administrative area': place.subAdministrativeArea,
-          if ((place.administrativeArea ?? '').trim().isNotEmpty)
-            'administrative area': place.administrativeArea,
-          if ((place.country ?? '').trim().isNotEmpty)
-            'country': place.country,
-          if ((place.isoCountryCode ?? '').trim().isNotEmpty)
-            'country code': place.isoCountryCode,
-          if (full.isNotEmpty) 'address': full,
-        };
-      },
-    );
-  }
-
   Future<Map<String, Object?>> _collectSensors() async {
     final values = <String, Object?>{};
 
@@ -651,111 +453,6 @@ class DeviceContextService {
     }
 
     return values;
-  }
-
-  Future<Map<String, Object?>> _getWeather(
-    double latitude,
-    double longitude,
-  ) {
-    final key =
-        'weather:${latitude.toStringAsFixed(3)},${longitude.toStringAsFixed(3)}';
-
-    return _cached<Map<String, Object?>>(
-      key,
-      config.weatherCacheDuration,
-      () async {
-        final uri = Uri.https(
-          'api.open-meteo.com',
-          '/v1/forecast',
-          <String, String>{
-            'latitude': latitude.toString(),
-            'longitude': longitude.toString(),
-            'current': [
-              'temperature_2m',
-              'relative_humidity_2m',
-              'apparent_temperature',
-              'precipitation',
-              'rain',
-              'weather_code',
-              'cloud_cover',
-              'surface_pressure',
-              'wind_speed_10m',
-              'wind_direction_10m',
-            ].join(','),
-            'timezone': 'auto',
-          },
-        );
-
-        final client = HttpClient()
-          ..connectionTimeout = config.weatherTimeout;
-
-        try {
-          final request =
-              await client.getUrl(uri).timeout(config.weatherTimeout);
-          request.headers.set(
-            HttpHeaders.acceptHeader,
-            'application/json',
-          );
-
-          final response =
-              await request.close().timeout(config.weatherTimeout);
-
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            throw HttpException(
-              'weather HTTP ${response.statusCode}',
-              uri: uri,
-            );
-          }
-
-          final body = await response
-              .transform(const Utf8Decoder(allowMalformed: true))
-              .join()
-              .timeout(config.weatherTimeout);
-
-          final decoded = jsonDecode(body);
-          if (decoded is! Map<String, dynamic>) {
-            throw const FormatException('invalid weather response');
-          }
-
-          final current = decoded['current'];
-          if (current is! Map) {
-            return const <String, Object?>{};
-          }
-
-          final data = Map<String, dynamic>.from(current);
-          final weatherCode =
-              int.tryParse(data['weather_code']?.toString() ?? '');
-
-          return <String, Object?>{
-            if (data['time'] != null) 'observation time': data['time'],
-            if (data['temperature_2m'] != null)
-              'temperature °C': data['temperature_2m'],
-            if (data['apparent_temperature'] != null)
-              'feels like °C': data['apparent_temperature'],
-            if (data['relative_humidity_2m'] != null)
-              'relative humidity %': data['relative_humidity_2m'],
-            if (data['precipitation'] != null)
-              'precipitation mm': data['precipitation'],
-            if (data['rain'] != null) 'rain mm': data['rain'],
-            if (data['cloud_cover'] != null)
-              'cloud cover %': data['cloud_cover'],
-            if (data['surface_pressure'] != null)
-              'surface pressure hPa': data['surface_pressure'],
-            if (data['wind_speed_10m'] != null)
-              'wind speed km/h': data['wind_speed_10m'],
-            if (data['wind_direction_10m'] != null)
-              'wind direction degrees': data['wind_direction_10m'],
-            if (weatherCode != null) 'weather code': weatherCode,
-            if (weatherCode != null)
-              'condition': _weatherDescription(weatherCode),
-            if (decoded['timezone'] != null)
-              'weather timezone': decoded['timezone'],
-          };
-        } finally {
-          client.close(force: true);
-        }
-      },
-    );
   }
 
   Future<void> _safeCollect(
@@ -826,51 +523,6 @@ class DeviceContextService {
     return names[index];
   }
 
-  static String _weatherDescription(int code) {
-    switch (code) {
-      case 0:
-        return 'Clear sky';
-      case 1:
-        return 'Mainly clear';
-      case 2:
-        return 'Partly cloudy';
-      case 3:
-        return 'Overcast';
-      case 45:
-      case 48:
-        return 'Fog';
-      case 51:
-      case 53:
-      case 55:
-      case 56:
-      case 57:
-        return 'Drizzle';
-      case 61:
-      case 63:
-      case 65:
-      case 66:
-      case 67:
-        return 'Rain';
-      case 71:
-      case 73:
-      case 75:
-      case 77:
-        return 'Snow';
-      case 80:
-      case 81:
-      case 82:
-        return 'Rain showers';
-      case 85:
-      case 86:
-        return 'Snow showers';
-      case 95:
-      case 96:
-      case 99:
-        return 'Thunderstorm';
-      default:
-        return 'Unknown';
-    }
-  }
 }
 
 class _CacheEntry<T> {
