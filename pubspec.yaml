@@ -1,6 +1,6 @@
 name: flutter_gpt_engine
 description: Headless Flutter package for running GGUF LLMs locally on Android with streaming, conversation history, web search, device context, thinking support, benchmarking, and CPU/GPU auto-tuning.
-version: 0.0.9
+version: 0.0.10
 homepage: https://github.com/NafimAhmed/flutter_gpt_engine
 
 environment:
@@ -17,8 +17,6 @@ dependencies:
   battery_plus: ^6.2.3
   connectivity_plus: ^6.1.5
   device_info_plus: ^11.5.0
-  geocoding: ^5.0.0
-  geolocator: 14.0.2
   package_info_plus: ^8.3.1
   sensors_plus: ^6.1.2
   system_info2: ^4.1.0
