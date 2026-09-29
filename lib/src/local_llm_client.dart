@@ -774,13 +774,15 @@ class LocalLlmClient extends ChangeNotifier {
     return snapshot;
   }
 
-  /// Explicit location permission request intended to be called after the host
-  /// app/user enables a device-location feature.
+  /// Deprecated compatibility helper. Location access was removed in v0.0.10;
+  /// this always returns false and never requests a system permission.
+  @Deprecated('Location access was removed in v0.0.10; this always returns false.')
   Future<bool> requestDeviceLocationPermission() {
     _ensureNotDisposed();
     return _deviceContextService.requestLocationPermission();
   }
 
+  @Deprecated('Location access was removed in v0.0.10; this always returns false.')
   Future<bool> hasDeviceLocationPermission() {
     _ensureNotDisposed();
     return _deviceContextService.hasLocationPermission();

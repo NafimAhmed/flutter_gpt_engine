@@ -77,11 +77,7 @@ The package is designed as an **engine layer**, not a UI framework.
 - Current device date, time, timezone, and locale context
 - Device / OS / app information
 - Battery, network, storage, memory, and screen information
-- Latitude, longitude, accuracy, altitude, speed, and heading
-- Reverse-geocoded address / city information
 - Optional accelerometer, gyroscope, magnetometer, and barometer context
-- Optional current weather using Open-Meteo
-- Device context caching and explicit location-permission helpers
 
 ---
 
@@ -130,7 +126,7 @@ Add the package to your Flutter project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.9
+  flutter_gpt_engine: ^0.0.10
 ```
 
 Then run:
@@ -994,17 +990,10 @@ Supported context can include:
 - Memory information
 - Storage information
 - Screen information
-- Latitude and longitude
-- Location accuracy
-- Altitude
-- Speed
-- Heading
-- Reverse-geocoded address / city
 - Accelerometer
 - Gyroscope
 - Magnetometer
 - Barometer, when available
-- Current weather through Open-Meteo
 
 Device Context is **disabled by default**.
 
@@ -1030,16 +1019,9 @@ final gpt = LocalLlmClient(
     includeMemory: true,
     includeScreenInfo: true,
 
-    includeLocation: true,
-    includeAddress: true,
-    includeAltitude: true,
-    includeSpeed: true,
-    includeHeading: true,
-
     includeSensors: false,
     includeBarometer: false,
 
-    includeWeather: true,
   ),
 );
 ```
@@ -1065,17 +1047,9 @@ Date / time
         ↓
 Battery
 
-"Amar location kothay?"
-        ↓
-Location
-
-"Amar ekhane weather kemon?"
-        ↓
-Location + weather
-
 "Explain Java inheritance"
         ↓
-No unnecessary location/weather collection
+No unnecessary device-context collection
 ```
 
 ### `DeviceContextMode.always`
@@ -1104,42 +1078,13 @@ Update the full runtime configuration:
 gpt.updateDeviceContextConfig(
   gpt.deviceContextConfig.copyWith(
     enabled: true,
-    includeLocation: false,
-    includeWeather: false,
   ),
 );
 ```
 
-### Location permission
+### Location privacy
 
-By default:
-
-```dart
-requestLocationPermissionWhenNeeded: false
-```
-
-This prevents the package from unexpectedly opening a location permission dialog.
-
-The host application can explicitly request permission:
-
-```dart
-final granted = await gpt.requestDeviceLocationPermission();
-```
-
-Check permission:
-
-```dart
-final granted = await gpt.hasDeviceLocationPermission();
-```
-
-If you intentionally want the package to request permission when a location-dependent question requires it:
-
-```dart
-deviceContextConfig: const DeviceContextConfig(
-  enabled: true,
-  requestLocationPermissionWhenNeeded: true,
-),
-```
+Starting with v0.0.10, `Flutter_GPT_Engine` does **not** collect device location and does **not** request Android/iOS location permission. The old location-related configuration fields and permission helper methods remain only for source compatibility; they are ignored or return `false`.
 
 ### Collect Device Context manually
 
@@ -1157,11 +1102,7 @@ print(snapshot.toPromptContext());
 deviceContextConfig: const DeviceContextConfig(
   enabled: true,
   basicCacheDuration: Duration(minutes: 5),
-  locationCacheDuration: Duration(minutes: 2),
-  weatherCacheDuration: Duration(minutes: 15),
   sensorTimeout: Duration(seconds: 2),
-  locationTimeout: Duration(seconds: 10),
-  weatherTimeout: Duration(seconds: 8),
 ),
 ```
 
@@ -1171,25 +1112,9 @@ Clear cached device information:
 gpt.clearDeviceContextCache();
 ```
 
-### Current weather
+### Location-backed weather
 
-Current weather is fetched from Open-Meteo using the current device location.
-
-```text
-Device GPS
-    ↓
-Latitude / Longitude
-    ↓
-Open-Meteo
-    ↓
-Current Weather
-    ↓
-Local GGUF Context
-```
-
-No weather API key is required.
-
-If location permission, internet access, device data, or weather data is unavailable, the engine treats that information as unavailable instead of intentionally inventing a live value.
+Location-backed weather collection was removed in v0.0.10 together with device-location access. Ordinary web search remains available and does not require device GPS permission.
 
 ---
 
@@ -1651,16 +1576,9 @@ android/app/src/main/AndroidManifest.xml
 <uses-permission android:name="android.permission.INTERNET" />
 ```
 
-### Location permission for Device Context
+### Location permissions
 
-If you enable location, address, altitude, speed, heading, or current local weather, also add:
-
-```xml
-<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-```
-
-The package does not require location permission for normal local GGUF inference, date/time, basic device information, or ordinary web search.
+`Flutter_GPT_Engine` v0.0.10+ does not declare or request `ACCESS_COARSE_LOCATION` or `ACCESS_FINE_LOCATION`. Do not add those permissions for this package.
 
 Normal local GGUF inference does not require internet access after the model is available on the device.
 
@@ -1791,9 +1709,7 @@ searchMode: WebSearchMode.never
 
 When Device Context is enabled, the host application controls which device-data categories are available to the engine. Device Context is disabled by default.
 
-Location-related context can require Android runtime permission.
-
-When current weather is enabled and needed, the package uses the current latitude/longitude to request current weather from Open-Meteo. Disable `includeWeather` or location-related context if your application should not use that network-backed feature.
+Device-location collection and location-backed weather were removed in v0.0.10. The package no longer requests or requires location permission.
 
 
 ---
@@ -1816,7 +1732,6 @@ You can use `Flutter_GPT_Engine` to build:
 - Documentation assistants
 - Current-information assistants
 - Device-aware local AI assistants
-- Location-aware assistants
 - On-device troubleshooting assistants
 - Local AI apps with realtime thinking UI
 

@@ -18,14 +18,14 @@ class DeviceContextConfig {
     this.includeStorage = true,
     this.includeMemory = true,
     this.includeScreenInfo = true,
-    this.includeLocation = true,
-    this.includeAddress = true,
-    this.includeAltitude = true,
-    this.includeSpeed = true,
-    this.includeHeading = true,
+    this.includeLocation = false,
+    this.includeAddress = false,
+    this.includeAltitude = false,
+    this.includeSpeed = false,
+    this.includeHeading = false,
     this.includeSensors = false,
     this.includeBarometer = false,
-    this.includeWeather = true,
+    this.includeWeather = false,
     this.requestLocationPermissionWhenNeeded = false,
     this.basicCacheDuration = const Duration(minutes: 5),
     this.locationCacheDuration = const Duration(minutes: 2),
@@ -56,6 +56,8 @@ class DeviceContextConfig {
   final bool includeMemory;
   final bool includeScreenInfo;
 
+  /// Legacy compatibility flags. Device location collection was removed in
+  /// v0.0.10; these values no longer trigger location access.
   final bool includeLocation;
   final bool includeAddress;
   final bool includeAltitude;
@@ -65,12 +67,12 @@ class DeviceContextConfig {
   final bool includeSensors;
   final bool includeBarometer;
 
-  /// Current weather is fetched from Open-Meteo using the current location.
-  /// No API key is required.
+  /// Legacy compatibility flag. Location-backed weather collection was
+  /// removed in v0.0.10 and this value no longer triggers location access.
   final bool includeWeather;
 
-  /// false by default so a package never surprises the user with a permission
-  /// dialog. The host app can explicitly call requestDeviceLocationPermission().
+  /// Legacy compatibility flag. Location permission requests were removed in
+  /// v0.0.10 and this value is ignored.
   final bool requestLocationPermissionWhenNeeded;
 
   final Duration basicCacheDuration;

@@ -1,3 +1,11 @@
+## 0.0.10
+
+- Emergency privacy patch: removed device-location collection and runtime location permission requests.
+- Removed `geolocator` and `geocoding` dependencies.
+- Removed coarse/fine location permissions from the example Android manifest.
+- Removed location-backed reverse geocoding and current-weather collection.
+- Kept legacy location configuration/helper APIs as no-op compatibility shims so existing integrations keep compiling.
+
 ## 0.0.9
 
 - Added opt-in Fast, Balanced, and Quality mobile performance presets.
