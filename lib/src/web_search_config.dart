@@ -11,6 +11,8 @@ class WebSearchConfig {
     this.useGoogle = true,
     this.directUrlFetch = true,
     this.useOfficialSourceHints = true,
+    this.autoSearchThreshold = 4,
+    this.appendCurrentYearToDynamicQueries = true,
     this.fallbackOnLocalFailure = false,
     this.minLocalAnswerCharacters = 1,
     this.localFailurePhrases = const <String>[
@@ -89,6 +91,16 @@ class WebSearchConfig {
   final bool directUrlFetch;
   final bool useOfficialSourceHints;
 
+  /// Minimum intent score required before [WebSearchMode.auto] goes online.
+  ///
+  /// The default is tuned to search for genuinely dynamic/external requests
+  /// while keeping stable knowledge and coding questions local.
+  final int autoSearchThreshold;
+
+  /// Adds the current year to dynamic role/recommendation/live-data queries
+  /// when the user did not already provide a time scope.
+  final bool appendCurrentYearToDynamicQueries;
+
   /// If true, smartGenerate() first lets the local model try non-current
   /// questions. When that completed answer clearly says it cannot answer,
   /// the package discards the local candidate, searches the public web, and
@@ -122,6 +134,8 @@ class WebSearchConfig {
     bool? useGoogle,
     bool? directUrlFetch,
     bool? useOfficialSourceHints,
+    int? autoSearchThreshold,
+    bool? appendCurrentYearToDynamicQueries,
     bool? fallbackOnLocalFailure,
     int? minLocalAnswerCharacters,
     List<String>? localFailurePhrases,
@@ -140,6 +154,9 @@ class WebSearchConfig {
       directUrlFetch: directUrlFetch ?? this.directUrlFetch,
       useOfficialSourceHints:
           useOfficialSourceHints ?? this.useOfficialSourceHints,
+      autoSearchThreshold: autoSearchThreshold ?? this.autoSearchThreshold,
+      appendCurrentYearToDynamicQueries: appendCurrentYearToDynamicQueries ??
+          this.appendCurrentYearToDynamicQueries,
       fallbackOnLocalFailure:
           fallbackOnLocalFailure ?? this.fallbackOnLocalFailure,
       minLocalAnswerCharacters:
