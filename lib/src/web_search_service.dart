@@ -38,7 +38,7 @@ class WebSearchService {
   }) async {
     final cleanQuery = _normalizeSearchQuery(query);
 
-    if (!config.enabled || cleanQuery.isEmpty) {
+    if (!config.enabled) {
       return WebSearchResult(
         query: cleanQuery,
         sources: const <WebSource>[],
@@ -46,8 +46,9 @@ class WebSearchService {
     }
 
     // 1) If the user supplied an explicit URL, read that page directly.
+    //    This runs before the empty-query guard so a URL-only prompt works.
     if (config.directUrlFetch) {
-      final urls = _extractUrls(originalPrompt ?? cleanQuery);
+      final urls = _extractUrls(originalPrompt ?? query);
 
       if (urls.isNotEmpty) {
         final fetched = await Future.wait(
@@ -64,12 +65,19 @@ class WebSearchService {
 
         if (directSources.isNotEmpty) {
           return WebSearchResult(
-            query: cleanQuery,
+            query: cleanQuery.isEmpty ? urls.first : cleanQuery,
             sources: directSources,
             provider: 'direct',
           );
         }
       }
+    }
+
+    if (cleanQuery.isEmpty) {
+      return const WebSearchResult(
+        query: '',
+        sources: <WebSource>[],
+      );
     }
 
     final isCurrent = _looksCurrent(cleanQuery);
