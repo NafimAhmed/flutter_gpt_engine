@@ -177,14 +177,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "10.3.10"
-  fixnum:
-    dependency: transitive
-    description:
-      name: fixnum
-      sha256: b6dc7065e46c974bc7c5f143080a6764ec7a4be6da1285ececdc37be96de53be
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.1"
   flutter:
     dependency: "direct main"
     description: flutter
@@ -196,7 +188,7 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "0.0.9"
+    version: "0.0.10"
   flutter_lints:
     dependency: "direct dev"
     description:
@@ -223,14 +215,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  geoclue:
-    dependency: transitive
-    description:
-      name: geoclue
-      sha256: c2a998c77474fc57aa00c6baa2928e58f4b267649057a1c76738656e9dbd2a7f
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.1"
   globbing:
     dependency: transitive
     description:
@@ -239,14 +223,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.0"
-  gsettings:
-    dependency: transitive
-    description:
-      name: gsettings
-      sha256: "1b0ce661f5436d2db1e51f3c4295a49849f03d304003a7ba177d01e3a858249c"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.2.8"
   hooks:
     dependency: transitive
     description:
@@ -604,14 +580,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.0"
-  uuid:
-    dependency: transitive
-    description:
-      name: uuid
-      sha256: "9b129329f58692f6e6578329498a8fe9fbe98f090beb764ffbb8ee2eadd01dcd"
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.6.0"
   vector_math:
     dependency: transitive
     description:
@@ -678,4 +646,4 @@ packages:
     version: "3.1.4"
 sdks:
   dart: ">=3.13.2 <4.0.0"
-  flutter: ">=3.44.0"
+  flutter: ">=3.38.4"
