@@ -172,7 +172,9 @@ class WebSearchIntentAnalyzer {
         .replaceAll(
           RegExp(
             r'(দয়া করে|দয়া করে|আমাকে|একটু|সার্চ করে|সার্চ কর|'
-            r'খুঁজে দেখ|খুঁজে দাও|বলো তো|বলো|বল তো)',
+            r'খুঁজে দেখ|খুঁজে দাও|বলো তো|বলো|বল তো|'
+            r'amake|ektu|bolo to|bolo|bol to|search kore|search koro|'
+            r'khuje dekho|khuje dao)',
             caseSensitive: false,
           ),
           ' ',
@@ -255,6 +257,13 @@ class WebSearchIntentAnalyzer {
   ];
 
   static const List<String> _banglaExplicitSearchPhrases = <String>[
+    'search kore',
+    'search koro',
+    'google kore',
+    'online e khuj',
+    'internet e khuj',
+    'khuje dekho',
+    'khuje dao',
     'সার্চ করে',
     'সার্চ কর',
     'গুগলে খুঁজ',
@@ -286,6 +295,12 @@ class WebSearchIntentAnalyzer {
   ];
 
   static const List<String> _banglaFreshnessPhrases = <String>[
+    'ajker',
+    'ajke',
+    'bortoman',
+    'sorbosesh',
+    'shorbosesh',
+    'latest ta',
     'আজকের',
     'আজকে',
     'এখনকার',
@@ -331,6 +346,13 @@ class WebSearchIntentAnalyzer {
   ];
 
   static const List<String> _banglaLiveDataPhrases = <String>[
+    'dam koto',
+    'price koto',
+    'weather kemon',
+    'score koto',
+    'available ase',
+    'stock e ase',
+    'kobe release',
     'দাম কত',
     'মূল্য কত',
     'আবহাওয়া',
@@ -352,6 +374,10 @@ class WebSearchIntentAnalyzer {
     RegExp(
       r'\bwho is\s+(the\s+)?(president|prime minister|ceo|cto|cfo|mayor|'
       r'chairman|chairperson|coach|captain|governor)\b',
+      caseSensitive: false,
+    ),
+    RegExp(
+      r'\b(president|prime minister|ceo|cto|cfo|chairman|coach|captain)\s+ke\b',
       caseSensitive: false,
     ),
     RegExp(
@@ -380,6 +406,11 @@ class WebSearchIntentAnalyzer {
   ];
 
   static const List<String> _banglaNearbyPhrases = <String>[
+    'amar kache',
+    'amar ashepashe',
+    'ashepashe',
+    'amar area te',
+    'kacher',
     'আমার কাছে',
     'কাছাকাছি',
     'আমার আশেপাশে',
@@ -405,6 +436,19 @@ class WebSearchIntentAnalyzer {
   ];
 
   static const List<String> _banglaRecommendationPhrases = <String>[
+    'konta valo',
+    'konta bhalo',
+    'kon ta valo',
+    'kon ta bhalo',
+    'konti valo',
+    'konti bhalo',
+    'best konta',
+    'kinbo',
+    'kena valo',
+    'kena bhalo',
+    'recommend koro',
+    'suggest koro',
+    'compare koro',
     'কোনটা ভালো',
     'কোনটা ভাল',
     'কোনটি ভালো',
@@ -439,6 +483,8 @@ class WebSearchIntentAnalyzer {
   ];
 
   static const List<String> _banglaMarketOrDiscoveryPhrases = <String>[
+    'takar moddhe',
+    'damer moddhe',
     'বাজেট',
     'টাকার মধ্যে',
     'দামের মধ্যে',
@@ -470,6 +516,10 @@ class WebSearchIntentAnalyzer {
   ];
 
   static const List<String> _banglaEvidenceRequestPhrases = <String>[
+    'source dao',
+    'reference dao',
+    'citation dao',
+    'link dao',
     'সোর্স দাও',
     'সোর্সসহ',
     'রেফারেন্স দাও',
