@@ -94,6 +94,14 @@ class WebSearchService {
     if (config.useGoogle) {
       final google = await _searchGoogle(cleanQuery);
       if (google.isNotEmpty) return google;
+
+      // Human-like retry: if the conversational query produced no usable
+      // result, remove question/filler words and try once more.
+      final retryQuery = _buildRetryQuery(cleanQuery);
+      if (retryQuery.isNotEmpty && retryQuery != cleanQuery) {
+        final retry = await _searchGoogle(retryQuery);
+        if (retry.isNotEmpty) return retry;
+      }
     }
 
     // 5) Last fallback: Wikipedia.
@@ -672,6 +680,38 @@ class WebSearchService {
 
   String _cleanUrl(String value) {
     return value.trim().replaceFirst(RegExp(r'[.,;:!?]+$'), '');
+  }
+
+  String _buildRetryQuery(String query) {
+    var refined = query
+        .replaceAll(
+          RegExp(
+            r'^\s*(what is|what are|who is|who are|tell me|show me|'
+            r'can you tell me|can you find|please find|please check)\s+',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .replaceAll(
+          RegExp(
+            r'\b(koto|ki|ke|bolo|bolen|please|dao|diben)\b',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
+        .replaceAll(
+          RegExp(r'[?!.]+'),
+          ' ',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    if (refined.length < 4) return query;
+    if (refined.length > 180) {
+      refined = refined.substring(0, 180).trim();
+    }
+
+    return refined;
   }
 
   String _normalizeSearchQuery(String value) {
