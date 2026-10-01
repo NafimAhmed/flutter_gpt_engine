@@ -75,6 +75,38 @@ void main() {
       );
     });
 
+    test('searches Banglish price requests', () {
+      final decision = analyzer.analyze('Samsung S26 er price koto?');
+
+      expect(decision.shouldSearch, isTrue);
+      expect(
+        decision.reasons,
+        contains(WebSearchIntentReason.liveData),
+      );
+    });
+
+    test('searches Banglish current-role requests', () {
+      final decision = analyzer.analyze('OpenAI er CEO ke?');
+
+      expect(decision.shouldSearch, isTrue);
+      expect(
+        decision.reasons,
+        contains(WebSearchIntentReason.currentRole),
+      );
+    });
+
+    test('searches Banglish shopping recommendations', () {
+      final decision = analyzer.analyze(
+        '30 hazar takar moddhe best phone konta valo?',
+      );
+
+      expect(decision.shouldSearch, isTrue);
+      expect(
+        decision.reasons,
+        contains(WebSearchIntentReason.recommendation),
+      );
+    });
+
     test('does not search stable version-control explanation', () {
       final decision = analyzer.analyze('Explain version control');
 
@@ -132,5 +164,17 @@ void main() {
         isNot(contains('with sources')),
       );
     });
+  });
+
+  test('WebSearchConfig copyWith keeps intent settings', () {
+    const config = WebSearchConfig(
+      autoSearchThreshold: 6,
+      appendCurrentYearToDynamicQueries: false,
+    );
+
+    final copied = config.copyWith();
+
+    expect(copied.autoSearchThreshold, 6);
+    expect(copied.appendCurrentYearToDynamicQueries, isFalse);
   });
 }
