@@ -1,3 +1,12 @@
+## Unreleased
+
+- Replaced broad keyword-only automatic web-search triggering with contextual intent analysis.
+- Added English, Bangla, and common Banglish detection for fresh/live information, current roles, recommendations, nearby discovery, evidence requests, and explicit web lookups.
+- Added inspectable search decisions through `analyzeWebSearchIntent()`.
+- Added a refined-query retry when the first Google HTML search produces no usable result.
+- Reduced false-positive searches for stable concepts such as version control, source code, online learning, and SQL update operations.
+- Restricted official-source hints to relevant version/release/docs queries instead of every technical query.
+
 ## 0.0.10
 
 - Emergency privacy patch: removed device-location collection and runtime location permission requests.

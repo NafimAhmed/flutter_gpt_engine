@@ -5,6 +5,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
 import 'web_search_config.dart';
+import 'web_search_intent.dart';
 import 'web_search_models.dart';
 
 class WebSearchService {
@@ -37,7 +38,7 @@ class WebSearchService {
   }) async {
     final cleanQuery = _normalizeSearchQuery(query);
 
-    if (!config.enabled || cleanQuery.isEmpty) {
+    if (!config.enabled) {
       return WebSearchResult(
         query: cleanQuery,
         sources: const <WebSource>[],
@@ -45,8 +46,9 @@ class WebSearchService {
     }
 
     // 1) If the user supplied an explicit URL, read that page directly.
+    //    This runs before the empty-query guard so a URL-only prompt works.
     if (config.directUrlFetch) {
-      final urls = _extractUrls(originalPrompt ?? cleanQuery);
+      final urls = _extractUrls(originalPrompt ?? query);
 
       if (urls.isNotEmpty) {
         final fetched = await Future.wait(
@@ -63,12 +65,19 @@ class WebSearchService {
 
         if (directSources.isNotEmpty) {
           return WebSearchResult(
-            query: cleanQuery,
+            query: cleanQuery.isEmpty ? urls.first : cleanQuery,
             sources: directSources,
             provider: 'direct',
           );
         }
       }
+    }
+
+    if (cleanQuery.isEmpty) {
+      return const WebSearchResult(
+        query: '',
+        sources: <WebSource>[],
+      );
     }
 
     final isCurrent = _looksCurrent(cleanQuery);
@@ -77,7 +86,7 @@ class WebSearchService {
     // 2) For common technical/current topics, prefer known official pages.
     //    This avoids stale snippets and makes "latest version" questions much
     //    more reliable without requiring an API key.
-    if (config.useOfficialSourceHints && (isCurrent || isTechnical)) {
+    if (config.useOfficialSourceHints && _shouldUseOfficialHints(cleanQuery)) {
       final official = await _searchOfficialHints(cleanQuery);
       if (official.isNotEmpty) return official;
     }
@@ -93,6 +102,14 @@ class WebSearchService {
     if (config.useGoogle) {
       final google = await _searchGoogle(cleanQuery);
       if (google.isNotEmpty) return google;
+
+      // Human-like retry: if the conversational query produced no usable
+      // result, remove question/filler words and try once more.
+      final retryQuery = _buildRetryQuery(cleanQuery);
+      if (retryQuery.isNotEmpty && retryQuery != cleanQuery) {
+        final retry = await _searchGoogle(retryQuery);
+        if (retry.isNotEmpty) return retry;
+      }
     }
 
     // 5) Last fallback: Wikipedia.
@@ -605,41 +622,26 @@ class WebSearchService {
   }
 
   bool _looksCurrent(String query) {
-    final lower = query.toLowerCase();
-    const terms = <String>[
-      'latest',
-      'current',
-      'today',
-      'now',
-      'recent',
-      'newest',
-      'news',
-      'price',
-      'weather',
-      'score',
-      'release',
-      'version',
-      'update',
-      '2025',
-      '2026',
-      '2027',
-      'আজ',
-      'আজকের',
-      'এখন',
-      'বর্তমান',
-      'সর্বশেষ',
-      'লেটেস্ট',
-      'খবর',
-      'দাম',
-      'মূল্য',
-      'আবহাওয়া',
-      'স্কোর',
-      'রিলিজ',
-      'ভার্সন',
-      'আপডেট',
-    ];
+    final decision = const WebSearchIntentAnalyzer().analyze(query);
+    return decision.reasons.contains(WebSearchIntentReason.freshness) ||
+        decision.reasons.contains(WebSearchIntentReason.liveData) ||
+        decision.reasons.contains(WebSearchIntentReason.currentRole);
+  }
 
-    return terms.any((term) => lower.contains(term));
+  bool _shouldUseOfficialHints(String query) {
+    final lower = query.toLowerCase();
+
+    final hasKnownTopic = config.officialSourceHints.keys.any(
+      (keyword) => lower.contains(keyword.toLowerCase()),
+    );
+
+    if (!hasKnownTopic) return false;
+
+    return RegExp(
+      r'\b(version|release|stable|download|install|archive|'
+      r'breaking changes?|documentation|docs)\b',
+      caseSensitive: false,
+    ).hasMatch(lower);
   }
 
   bool _looksTechnical(String query) {
@@ -686,6 +688,38 @@ class WebSearchService {
 
   String _cleanUrl(String value) {
     return value.trim().replaceFirst(RegExp(r'[.,;:!?]+$'), '');
+  }
+
+  String _buildRetryQuery(String query) {
+    var refined = query
+        .replaceAll(
+          RegExp(
+            r'^\s*(what is|what are|who is|who are|tell me|show me|'
+            r'can you tell me|can you find|please find|please check)\s+',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .replaceAll(
+          RegExp(
+            r'\b(koto|ki|ke|bolo|bolen|please|dao|diben)\b',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
+        .replaceAll(
+          RegExp(r'[?!.]+'),
+          ' ',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    if (refined.length < 4) return query;
+    if (refined.length > 180) {
+      refined = refined.substring(0, 180).trim();
+    }
+
+    return refined;
   }
 
   String _normalizeSearchQuery(String value) {
