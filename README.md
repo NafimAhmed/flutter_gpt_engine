@@ -62,6 +62,8 @@ The package is designed as an **engine layer**, not a UI framework.
 - Smart web-aware generation with `smartGenerate()`
 - Full web-aware responses with `smartGenerateText()`
 - Automatic / forced / disabled web-search modes
+- Human-like web-search intent detection for English, Bangla, and common Banglish phrasing
+- One-pass refined-query retry when the first public web search returns no usable result
 - Direct public URL reading
 - Wikipedia search support
 - Google search fallback
@@ -480,6 +482,40 @@ WebSearchMode.auto
 
 when you want the package to decide whether fresh web information is needed.
 
+In auto mode, the decision is contextual rather than a raw keyword match. For
+example, `latest Flutter version`, `Samsung S26 er price koto?`,
+`OpenAI er CEO ke?`, `best WiFi printer under 20000 BDT`, nearby discovery,
+and source/reference requests can trigger web retrieval. Stable questions such
+as `Explain version control`, `What is source code?`, `Explain online learning`,
+and `How do I update a database row in SQL?` stay local.
+
+You can inspect the decision without performing a network request:
+
+```dart
+final decision = gpt.analyzeWebSearchIntent(
+  '30 hazar takar moddhe best phone konta valo?',
+);
+
+print(decision.shouldSearch);
+print(decision.score);
+print(decision.reasons);
+print(decision.searchQuery);
+```
+
+The sensitivity can be tuned with:
+
+```dart
+webSearchConfig: const WebSearchConfig(
+  enabled: true,
+  autoSearchThreshold: 4,
+  appendCurrentYearToDynamicQueries: true,
+),
+```
+
+Lower thresholds search more aggressively; higher thresholds keep more prompts
+local. The normal `generate()` API still remains offline unless
+`useWebSearch: true` is supplied.
+
 Use:
 
 ```dart
@@ -577,6 +613,18 @@ print(answer);
 ```
 
 That is enough to enable the package's web-aware generation flow.
+
+If you also want human-like "I do not know, so search" fallback, enable:
+
+```dart
+webSearchConfig: const WebSearchConfig(
+  enabled: true,
+  fallbackOnLocalFailure: true,
+),
+```
+
+This fallback is intentionally off by default because it buffers the first
+local answer before deciding whether a web retry is needed.
 
 ---
 
