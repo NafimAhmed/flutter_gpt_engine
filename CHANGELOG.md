@@ -1,4 +1,4 @@
-## Unreleased
+## 0.0.11
 
 - Replaced broad keyword-only automatic web-search triggering with contextual intent analysis.
 - Added English, Bangla, and common Banglish detection for fresh/live information, current roles, recommendations, nearby discovery, evidence requests, and explicit web lookups.

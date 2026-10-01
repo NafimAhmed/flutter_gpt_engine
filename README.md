@@ -128,7 +128,7 @@ Add the package to your Flutter project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.10
+  flutter_gpt_engine: ^0.0.11
 ```
 
 Then run:
@@ -1132,7 +1132,7 @@ gpt.updateDeviceContextConfig(
 
 ### Location privacy
 
-Starting with v0.0.10, `Flutter_GPT_Engine` does **not** collect device location and does **not** request Android/iOS location permission. The old location-related configuration fields and permission helper methods remain only for source compatibility; they are ignored or return `false`.
+Starting with v0.0.11, `Flutter_GPT_Engine` does **not** collect device location and does **not** request Android/iOS location permission. The old location-related configuration fields and permission helper methods remain only for source compatibility; they are ignored or return `false`.
 
 ### Collect Device Context manually
 
@@ -1162,7 +1162,7 @@ gpt.clearDeviceContextCache();
 
 ### Location-backed weather
 
-Location-backed weather collection was removed in v0.0.10 together with device-location access. Ordinary web search remains available and does not require device GPS permission.
+Location-backed weather collection was removed in v0.0.11 together with device-location access. Ordinary web search remains available and does not require device GPS permission.
 
 ---
 
@@ -1626,7 +1626,7 @@ android/app/src/main/AndroidManifest.xml
 
 ### Location permissions
 
-`Flutter_GPT_Engine` v0.0.10+ does not declare or request `ACCESS_COARSE_LOCATION` or `ACCESS_FINE_LOCATION`. Do not add those permissions for this package.
+`Flutter_GPT_Engine` v0.0.11+ does not declare or request `ACCESS_COARSE_LOCATION` or `ACCESS_FINE_LOCATION`. Do not add those permissions for this package.
 
 Normal local GGUF inference does not require internet access after the model is available on the device.
 
@@ -1757,7 +1757,7 @@ searchMode: WebSearchMode.never
 
 When Device Context is enabled, the host application controls which device-data categories are available to the engine. Device Context is disabled by default.
 
-Device-location collection and location-backed weather were removed in v0.0.10. The package no longer requests or requires location permission.
+Device-location collection and location-backed weather were removed in v0.0.11. The package no longer requests or requires location permission.
 
 
 ---
