@@ -85,6 +85,16 @@ void main() {
       );
     });
 
+    test('searches Banglish software version requests', () {
+      final decision = analyzer.analyze('Flutter er version koto?');
+
+      expect(decision.shouldSearch, isTrue);
+      expect(
+        decision.reasons,
+        contains(WebSearchIntentReason.liveData),
+      );
+    });
+
     test('searches Banglish current-role requests', () {
       final decision = analyzer.analyze('OpenAI er CEO ke?');
 
@@ -129,6 +139,18 @@ void main() {
       final decision = analyzer.analyze(
         'How do I update a database row in SQL?',
       );
+
+      expect(decision.shouldSearch, isFalse);
+    });
+
+    test('does not search electric-current explanation', () {
+      final decision = analyzer.analyze('What is current in electricity?');
+
+      expect(decision.shouldSearch, isFalse);
+    });
+
+    test('does not search CPU scheduling explanation', () {
+      final decision = analyzer.analyze('Explain CPU scheduling algorithm');
 
       expect(decision.shouldSearch, isFalse);
     });
