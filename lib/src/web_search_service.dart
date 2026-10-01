@@ -5,6 +5,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
 
 import 'web_search_config.dart';
+import 'web_search_intent.dart';
 import 'web_search_models.dart';
 
 class WebSearchService {
@@ -77,7 +78,7 @@ class WebSearchService {
     // 2) For common technical/current topics, prefer known official pages.
     //    This avoids stale snippets and makes "latest version" questions much
     //    more reliable without requiring an API key.
-    if (config.useOfficialSourceHints && (isCurrent || isTechnical)) {
+    if (config.useOfficialSourceHints && _shouldUseOfficialHints(cleanQuery)) {
       final official = await _searchOfficialHints(cleanQuery);
       if (official.isNotEmpty) return official;
     }
@@ -605,41 +606,26 @@ class WebSearchService {
   }
 
   bool _looksCurrent(String query) {
-    final lower = query.toLowerCase();
-    const terms = <String>[
-      'latest',
-      'current',
-      'today',
-      'now',
-      'recent',
-      'newest',
-      'news',
-      'price',
-      'weather',
-      'score',
-      'release',
-      'version',
-      'update',
-      '2025',
-      '2026',
-      '2027',
-      'আজ',
-      'আজকের',
-      'এখন',
-      'বর্তমান',
-      'সর্বশেষ',
-      'লেটেস্ট',
-      'খবর',
-      'দাম',
-      'মূল্য',
-      'আবহাওয়া',
-      'স্কোর',
-      'রিলিজ',
-      'ভার্সন',
-      'আপডেট',
-    ];
+    final decision = const WebSearchIntentAnalyzer().analyze(query);
+    return decision.reasons.contains(WebSearchIntentReason.freshness) ||
+        decision.reasons.contains(WebSearchIntentReason.liveData) ||
+        decision.reasons.contains(WebSearchIntentReason.currentRole);
+  }
 
-    return terms.any((term) => lower.contains(term));
+  bool _shouldUseOfficialHints(String query) {
+    final lower = query.toLowerCase();
+
+    final hasKnownTopic = config.officialSourceHints.keys.any(
+      (keyword) => lower.contains(keyword.toLowerCase()),
+    );
+
+    if (!hasKnownTopic) return false;
+
+    return RegExp(
+      r'\b(version|release|stable|download|install|archive|'
+      r'breaking changes?|documentation|docs)\b',
+      caseSensitive: false,
+    ).hasMatch(lower);
   }
 
   bool _looksTechnical(String query) {
