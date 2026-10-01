@@ -18,6 +18,7 @@ import 'local_llm_model.dart';
 import 'local_llm_performance.dart';
 import 'think_parser.dart';
 import 'web_search_config.dart';
+import 'web_search_intent.dart';
 import 'web_search_models.dart';
 import 'web_search_service.dart';
 
@@ -31,6 +32,11 @@ class LocalLlmClient extends ChangeNotifier {
   })  : _ownsWebSearchService = webSearchService == null,
         _webSearchService =
             webSearchService ?? WebSearchService(config: webSearchConfig),
+        _webSearchIntentAnalyzer = WebSearchIntentAnalyzer(
+          threshold: webSearchConfig.autoSearchThreshold,
+          appendCurrentYearToDynamicQueries:
+              webSearchConfig.appendCurrentYearToDynamicQueries,
+        ),
         _deviceContextService = deviceContextService ??
             DeviceContextService(config: deviceContextConfig);
 
@@ -38,6 +44,7 @@ class LocalLlmClient extends ChangeNotifier {
   final WebSearchConfig webSearchConfig;
   final bool _ownsWebSearchService;
   final WebSearchService _webSearchService;
+  final WebSearchIntentAnalyzer _webSearchIntentAnalyzer;
   final DeviceContextService _deviceContextService;
 
   DeviceContextConfig get deviceContextConfig => _deviceContextService.config;
@@ -367,8 +374,11 @@ class LocalLlmClient extends ChangeNotifier {
 
   /// Web-aware generation with optional local-answer fallback.
   ///
-  /// In [WebSearchMode.auto], search is triggered for explicit URLs/search
-  /// requests and common fresh-information prompts. If
+  /// In [WebSearchMode.auto], a fast intent analyzer decides whether the
+  /// request genuinely needs fresh/external information. It understands URLs,
+  /// live data, current roles, shopping/discovery, nearby requests, evidence
+  /// requests, and freshness language without treating words such as
+  /// "version", "source", "online", or "update" as automatic triggers. If
   /// [WebSearchConfig.fallbackOnLocalFailure] is enabled, a non-current query
   /// is first attempted locally; a clearly failed/unknown answer is discarded
   /// and retried with fresh public web context.
@@ -1309,90 +1319,19 @@ $modelPrompt
     }
   }
 
+  /// Explains the decision used by [WebSearchMode.auto] without performing
+  /// any network request or model generation.
+  WebSearchIntentDecision analyzeWebSearchIntent(String prompt) {
+    _ensureNotDisposed();
+    return _webSearchIntentAnalyzer.analyze(prompt);
+  }
+
   bool _shouldAutoSearch(String prompt) {
-    final lower = prompt.toLowerCase();
-
-    if (RegExp(r'''https?://[^\s<>()\[\]{}"']+''', caseSensitive: false)
-        .hasMatch(prompt)) {
-      return true;
-    }
-
-    const triggers = <String>[
-      'search',
-      'search web',
-      'search internet',
-      'google',
-      'wikipedia',
-      'source',
-      'sources',
-      'link',
-      'latest',
-      'current',
-      'today',
-      'now',
-      'recent',
-      'news',
-      'price',
-      'weather',
-      'score',
-      'schedule',
-      'release',
-      'version',
-      'update',
-      'available now',
-      'online',
-      'সার্চ',
-      'খুঁজে',
-      'গুগল',
-      'উইকিপিডিয়া',
-      'উইকিপিডিয়া',
-      'সোর্স',
-      'লিংক',
-      'লিঙ্ক',
-      'আজ',
-      'আজকের',
-      'এখন',
-      'বর্তমান',
-      'সর্বশেষ',
-      'লেটেস্ট',
-      'সাম্প্রতিক',
-      'খবর',
-      'দাম',
-      'মূল্য',
-      'আবহাওয়া',
-      'স্কোর',
-      'সময়সূচি',
-      'রিলিজ',
-      'ভার্সন',
-      'আপডেট',
-    ];
-
-    if (triggers.any((term) => lower.contains(term))) {
-      return true;
-    }
-
-    final currentYear = DateTime.now().year.toString();
-    return lower.contains(currentYear) &&
-        (lower.contains('new') ||
-            lower.contains('best') ||
-            lower.contains('latest') ||
-            lower.contains('current'));
+    return _webSearchIntentAnalyzer.analyze(prompt).shouldSearch;
   }
 
   String _buildSearchQuery(String prompt) {
-    var query = prompt
-        .replaceAll(
-          RegExp(r'''https?://[^\s<>()\[\]{}"']+''', caseSensitive: false),
-          ' ',
-        )
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-
-    if (query.length > 300) {
-      query = query.substring(0, 300).trim();
-    }
-
-    return query.isEmpty ? prompt.trim() : query;
+    return _webSearchIntentAnalyzer.analyze(prompt).searchQuery;
   }
 
   String _buildWebGroundedPrompt({
