@@ -182,6 +182,14 @@ class WebSearchIntentAnalyzer {
         .replaceAll(
           RegExp(r'(সোর্স|রেফারেন্স|সাইটেশন)\s*(দাও|সহ)?'),
           ' ',
+        )
+        .replaceAll(
+          RegExp(
+            r'\b(source|reference|citation|link)\s+'
+            r'(dao|diben|please)\b',
+            caseSensitive: false,
+          ),
+          ' ',
         );
 
     query = _normalizeWhitespace(query);
@@ -343,6 +351,11 @@ class WebSearchIntentAnalyzer {
       r'\bavailable\s+(now|today|near me|in)\b',
       caseSensitive: false,
     ),
+    RegExp(
+      r'\b(flutter|dart|android|python|java|kotlin|ios|sdk|package)\b'
+      r'.{0,40}\bversion\s+(koto|ki)\b',
+      caseSensitive: false,
+    ),
   ];
 
   static const List<String> _banglaLiveDataPhrases = <String>[
@@ -467,9 +480,10 @@ class WebSearchIntentAnalyzer {
     RegExp(
       r'\b(phone|smartphone|laptop|tablet|printer|watch|smartwatch|camera|'
       r'router|headphones?|earbuds?|monitor|tv|television|car|bike|bicycle|'
-      r'bank|credit card|isp|internet provider|restaurant|hotel|resort|'
-      r'flight|airline|app|software|package|library|framework|plugin|course|'
-      r'hosting|cloud|vpn|keyboard|mouse|ssd|gpu|cpu)\b',
+      r'bank|credit card|isp|internet provider|restaurant|cafe|hotel|resort|'
+      r'flight|airline|hospital|clinic|doctor|university|school|gym|job|'
+      r'app|software|package|library|framework|plugin|course|hosting|cloud|'
+      r'vpn|keyboard|mouse|ssd|gpu|cpu)\b',
       caseSensitive: false,
     ),
     RegExp(
