@@ -589,6 +589,7 @@ class LocalLlmClient extends ChangeNotifier {
       issues: <HallucinationIssue>[],
     );
     var attempts = 0;
+    final initialMessageCount = _messages.length;
 
     try {
       // Protected answers require evidence. No offline model guess is used
@@ -700,6 +701,14 @@ class LocalLlmClient extends ChangeNotifier {
         attempts: attempts,
         webResult: evidence,
       );
+    } catch (_) {
+      // Native inference/search errors must not leave an unreviewed draft
+      // or an orphan user message behind in conversation history.
+      while (_messages.length > initialMessageCount) {
+        _messages.removeLast();
+      }
+      _clearThinkingPresentation();
+      rethrow;
     } finally {
       _isProtectingAnswer = false;
       _safeNotify();
@@ -1417,12 +1426,15 @@ $modelPrompt
   }
 
   void _removeLastConversationPair(String userPrompt) {
-    if (_messages.isNotEmpty &&
-        _messages.last.role == 'assistant') {
+    // Only delete messages belonging to this prompt. Do not accidentally
+    // remove the previous assistant response when a draft is empty.
+    if (_messages.length >= 2 &&
+        _messages.last.role == 'assistant' &&
+        _messages[_messages.length - 2].role == 'user' &&
+        _messages[_messages.length - 2].text.trim() == userPrompt.trim()) {
       _messages.removeLast();
-    }
-
-    if (_messages.isNotEmpty &&
+      _messages.removeLast();
+    } else if (_messages.isNotEmpty &&
         _messages.last.role == 'user' &&
         _messages.last.text.trim() == userPrompt.trim()) {
       _messages.removeLast();
