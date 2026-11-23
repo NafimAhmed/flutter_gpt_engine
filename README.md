@@ -362,6 +362,49 @@ print(answer);
 ---
 
 
+## 🛡️ Opt-in Automatic Hallucination Protection
+
+Use **generateProtectedText()** for answers that must be checked against live public sources.
+This feature is opt-in; the existing generation and streaming APIs are unchanged.
+
+```dart
+final gpt = LocalLlmClient(
+  webSearchConfig: const WebSearchConfig(enabled: true),
+);
+await gpt.loadModel('/path/to/model.gguf');
+
+final result = await gpt.generateProtectedText(
+  'What is the latest stable Flutter version?',
+  guardConfig: const HallucinationGuardConfig(
+    maxCorrectionAttempts: 2,
+  ),
+);
+
+print(result.answer);
+print(result.status); // evidenceMatched, notVerified, or cancelled
+print(result.attempts);
+print(result.audit.issues.map((issue) => issue.explanation).toList());
+print(result.webResult.sources.map((source) => source.url).toList());
+```
+
+**How it works:**
+
+1. Retrieve web sources (if search is enabled). If no sources can be retrieved, fail closed.
+2. Generate an answer privately without streaming an unchecked draft to the host UI.
+3. Check that each sentence has an existing citation [1], [2], etc., that its concrete
+   numbers, versions and URLs occur in a cited source, and that its terms match the evidence.
+4. If any check fails, automatically retry with the rejected claims and corrections prompt.
+5. After the retry limit, return an explicit uncertainty message rather than the unchecked draft.
+
+The first draft and failed retries are removed from conversation history. This API
+does not use cloud LLMs, but **it does send the question to public web search**.
+Offline mode without supplied evidence cannot verify externally grounded facts.
+
+**Important limitation:** This is a conservative *source-consistency screen*, not a
+semantic proof or independent fact checker. A citation containing similar words
+does not guarantee the claim is true, nor does it establish source trustworthiness.
+Use an independent NLI/claim verifier plus human review for high-stakes workflows.
+
 ## ✅ How to Enable Web Search
 
 Web search is **optional**. Local GGUF inference still works without internet access.
