@@ -1,3 +1,7 @@
+## 0.0.12
+
+- Remove hallucination.
+
 ## 0.0.11
 
 - Replaced broad keyword-only automatic web-search triggering with contextual intent analysis.
