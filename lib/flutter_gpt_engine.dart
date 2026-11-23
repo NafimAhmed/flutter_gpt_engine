@@ -1,3 +1,4 @@
+export 'src/hallucination_guard.dart';
 export 'src/device_context_config.dart';
 export 'src/device_context_models.dart';
 export 'src/device_context_service.dart';
