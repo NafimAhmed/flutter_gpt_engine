@@ -128,7 +128,7 @@ Add the package to your Flutter project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.11
+  flutter_gpt_engine: ^0.0.12
 ```
 
 Then run:
@@ -411,11 +411,11 @@ Web search is **optional**. Local GGUF inference still works without internet ac
 
 To enable web search, follow these steps.
 
-### 1. Use `flutter_gpt_engine: ^0.0.7`
+### 1. Use `flutter_gpt_engine: ^0.0.12`
 
 ```yaml
 dependencies:
-  flutter_gpt_engine: ^0.0.7
+  flutter_gpt_engine: ^0.0.12
 ```
 
 Then run:
