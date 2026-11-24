@@ -1,0 +1,27 @@
+name: Claim Verification
+
+on:
+  push:
+    branches:
+      - "feat/claim-fact-and-citation-verification"
+  pull_request:
+
+jobs:
+  flutter-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Get packages
+        run: flutter pub get
+      - name: Dart parser and formatting smoke check
+        run: dart format --output=none lib/src/claim_verification.dart lib/src/local_llm_client.dart lib/src/hallucination_guard.dart test/claim_verification_test.dart lib/flutter_gpt_engine.dart
+      - name: Flutter static analysis
+        run: flutter analyze --no-fatal-infos lib test
+      - name: Validate example chat screen
+        run: flutter analyze --no-fatal-infos example/lib/main.dart
+      - name: Flutter tests
+        run: flutter test

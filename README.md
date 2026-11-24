@@ -1,7 +1,7 @@
 
-# Flutter GPT Engine — Offline GGUF LLM, RAG & Vector Search for Flutter
+# Flutter_GPT_Engine
 
-> **Build on-device AI chat for Android with Flutter and local GGUF models. Add optional offline RAG, SQLite vector search, Qdrant, or public web retrieval when needed.**
+> **Run GPT-style AI directly inside your Flutter app — locally, privately, and without depending on a cloud API.**
 
 `Flutter_GPT_Engine` is a lightweight, **headless GGUF inference engine for Flutter** built for developers who want to run local large language models directly on Android devices.
 
@@ -13,10 +13,6 @@ No forced theme.
 No opinionated UI architecture.
 
 You build the experience. `Flutter_GPT_Engine` provides the AI engine.
-
-**Quick navigation:** [Install](#-installation) · [Load a GGUF model](#-2-let-the-user-pick-a-gguf-model) · [Streaming chat](#-5-generate-a-streaming-response) · [Offline RAG + SQLite vector database](#-optional-rag-and-vector-database-integration) · [Web search](#-how-to-enable-web-search) · [FAQ](#-frequently-asked-questions)
-
-**Platform note:** GGUF inference currently targets Android via `llama_flutter_android`. RAG/vector storage is optional, requires document text and embeddings, and does not provide a pretrained semantic embedding model.
 
 ---
 
@@ -409,318 +405,125 @@ semantic proof or independent fact checker. A citation containing similar words
 does not guarantee the claim is true, nor does it establish source trustworthiness.
 Use an independent NLI/claim verifier plus human review for high-stakes workflows.
 
-## 📚 Optional RAG and Vector Database Integration
+## 🔎 Per-Claim Fact Verification & Citation-to-Source Validation
 
-RAG is **opt-in**: existing local generation, web search and history APIs
-still work exactly as before. Pass a RagService to LocalLlmClient to add
-a private, document-grounded retrieval path. You can use an in-memory index
-(offline and ephemeral), a Qdrant collection, or your own RagVectorStore.
-
-### 1. Offline RAG with local text documents
+Use the new opt-in `generateVerifiedText()` API for **claim-by-claim** verification
+before a generated response is shown. It first runs the existing deterministic
+hallucination guard, then checks every numbered citation against the actual
+source text and asks a semantic entailment verifier to judge the cited passage.
 
 ```dart
-final rag = RagService(
-  embeddingProvider: const RagKeywordHashEmbeddingProvider(),
-  vectorStore: RagInMemoryVectorStore(),
-  config: const RagConfig(
-    chunkSize: 800,
-    chunkOverlap: 120,
-    topK: 4,
-    minScore: 0.10,
+final client = LocalLlmClient(
+  webSearchConfig: const WebSearchConfig(enabled: true),
+);
+await client.loadModel('/storage/emulated/0/Download/model.gguf');
+
+final result = await client.generateVerifiedText(
+  'What is the latest stable Flutter version?',
+  guardConfig: const HallucinationGuardConfig(
+    maxCorrectionAttempts: 2,
   ),
 );
 
-final gpt = LocalLlmClient(ragService: rag);
-await gpt.loadModel('/storage/emulated/0/Download/model.gguf');
+print(result.answer);
+print(result.isFactChecked); // semantic screening supported every claim
+print(result.claimReport?.supportedClaims);
+print(result.claimReport?.contradictedClaims);
+print(result.claimReport?.unverifiedClaims);
 
-await gpt.indexRagDocument(const RagDocument(
-  id: 'company-guide',
-  title: 'Employee handbook',
-  source: 'internal://handbook',
-  text: 'Employees should contact HR for leave policy questions.',
-));
-
-final answer = await gpt.generateText(
-  'Who should I contact about the leave policy?',
-  useRag: true,
-);
-print(answer);
-print(gpt.lastRagRetrievalResult?.hits.length);
+for (final claim in result.claimReport?.claims ?? <FactClaimVerification>[]) {
+  print(claim.claim);
+  print(claim.status);
+  for (final citation in claim.citations) {
+    print(citation.sourceUrl);
+    print(citation.passage);
+    print(citation.status);
+  }
+}
 ```
 
-Retrieval does not require a loaded GGUF model, but RAG *generation* does.
-If no relevant document is found, the RAG path returns an uncertainty
-message rather than guessing from the model's old training data.
+**Automatic behavior:** Sources are retrieved, a private draft is generated,
+claims and citations are checked, and unsupported claims trigger another
+generation attempt. If verification still fails, the original draft is
+withheld and an uncertainty message is returned. The normal `generate()`
+and `smartGenerate()` methods are unchanged.
 
-**Important:** RagKeywordHashEmbeddingProvider is a small word-hashing
-**lexical** baseline, not a semantic embedding model. It may miss paraphrases
-and is only suitable for experiments or simple terminology-based retrieval.
-For production use, provide a real multilingual sentence embedding model
-(on-device or via a trusted backend) through RagCallbackEmbeddingProvider
-or implement RagEmbeddingProvider yourself. Always index and query
-with the same embedding model and dimension.
+### Prevent wrong current-version answers in the example chat UI
 
-### 2. Persistent Offline RAG / SQLite Vector Database (Android-first)
-
-**বাংলায়:** `RagInMemoryVectorStore` শুধু RAM-এ vectors রাখে—app বন্ধ করলে তা হারায়।
-নতুন `RagSqliteVectorStore` device-এর private SQLite database-এ document
-text, metadata এবং embedding vector সংরক্ষণ করে। তাই app restart হলেও আগে
-indexed করা document আবার পাওয়া যাবে। Internet বা external server লাগে না।
-
-**English:** SQLite-based persistent vector storage survives normal app
-restarts. Clearing app data/uninstall removes the database. Data is *not*
-encrypted by the package. This is a small/medium-size offline vector store
-using a paged cosine-similarity scan, not an HNSW/ANN index.
-
-#### Which vector database should I use?
-
-| Store | Network? | Survives restart? | Storage |
-| --- | --- | --- | --- |
-| `RagInMemoryVectorStore` | No | No | RAM |
-| `RagSqliteVectorStore` | **No** | **Yes** | Device SQLite file |
-| `RagQdrantVectorStore` (cloud) | Yes | Yes | Remote Qdrant |
-| `RagQdrantVectorStore` (LAN) | LAN server | Yes | Local server |
-
-#### Step 1: Install this unreleased feature branch
-
-**Before PR #5 is merged and published**, use the Git branch in your
-Flutter application's `pubspec.yaml`:
-
-```yaml
-dependencies:
-  flutter:
-    sdk: flutter
-  flutter_gpt_engine:
-    git:
-      url: https://github.com/NafimAhmed/flutter_gpt_engine.git
-      ref: feat/optional-rag-vector-store
-```
-
-Run `flutter pub get`. The package includes `sqflite` and `path` internally;
-no additional direct dependency is needed for a standard Android app.
-
-#### Step 2: Open the SQLite store (first run or subsequent restart)
+The example app now routes time-sensitive or evidence-requiring prompts
+(such as `latest flutter version in 2026`, current prices, current roles
+and explicitly requested citations) to `generateVerifiedText()` instead
+of showing unverified tokens from `smartGenerate()`.
 
 ```dart
-import 'package:flutter_gpt_engine/flutter_gpt_engine.dart';
+final intent = const WebSearchIntentAnalyzer().analyze(question);
 
-final sqlite = await RagSqliteVectorStore.open(
-  fileName: 'company_knowledge.db',
-  collection: 'erp_manuals',
-  embeddingModelId: 'keyword-hash-256-v1',
-);
-
-print(sqlite.databasePath); // App's local database file
-print(await sqlite.countChunks()); // Saved chunks, including past sessions
+if (intent.requiresVerifiedAnswer) {
+  final verified = await gpt.generateVerifiedText(
+    question,
+    guardConfig: const HallucinationGuardConfig(
+      maxCorrectionAttempts: 2,
+    ),
+  );
+  // Only display verified.answer after the verification method finishes.
+  // When verification fails, verified.answer is a safe uncertainty message.
+  print(verified.answer);
+  print(verified.status);
+  print(verified.isFactChecked);
+} else {
+  await for (final token in gpt.smartGenerate(
+    question,
+    searchMode: WebSearchMode.auto,
+  )) {
+    print(token);
+  }
+}
 ```
 
-On Android the database is saved in the private app SQLite databases
-directory. Reuse exactly the same fileName, collection, and embeddingModelId
-when reopening the app. You may also pass an absolute `databasePath`.
+**Why this matters:** `WebSearchMode.auto` decides when to fetch public
+information, but it does not independently validate the final model answer.
+`fallbackOnLocalFailure` also cannot reliably catch a confidently wrong
+version or release date. Verified generation buffers drafts and fails closed
+if source/citation validation remains insufficient. Verify the actual web
+sources and avoid pretending this is a guarantee of factual truth.
 
-#### Step 3: Choose an offline embedding provider and configure RAG
+**Model limitation:** For the bundled example using an ultra-small
+0.5B IQ2_M GGUF model, the default second-pass NLI judge is the **same**
+small model, not an independent fact checker. It may fail to understand
+even correct evidence and therefore return an uncertainty response.
+For stronger results, inject an independent NLI verifier and/or use
+a more capable model, then evaluate it against known-answer tests.
 
-```dart
-final rag = RagService(
-  embeddingProvider: const RagKeywordHashEmbeddingProvider(dimensions: 256),
-  vectorStore: sqlite,
-  config: const RagConfig(
-    chunkSize: 800,
-    chunkOverlap: 120,
-    topK: 4,
-    minScore: 0.10,
-    maxContextCharacters: 6000,
-  ),
-);
-
-final gpt = LocalLlmClient(ragService: rag);
-```
-
-**Important:** `RagKeywordHashEmbeddingProvider` is an offline lexical
-hashing demonstration—not a semantic embedding model. For semantic retrieval
-provide a real multilingual offline embedding model through
-`RagEmbeddingProvider` or `RagCallbackEmbeddingProvider`. Keep the embedding
-model, vector size and `embeddingModelId` the same for indexing and querying.
-An online embedding API makes that part of the flow online.
-
-#### Step 4: Index your documents (once, or when changed)
+**Provide an independent verifier:** Implement `ClaimEntailmentVerifier`
+and pass it as `entailmentVerifier` to `generateVerifiedText()`.
 
 ```dart
-final count = await gpt.indexRagDocument(const RagDocument(
-  id: 'erp-guide-01',
-  title: 'ERP Production Manual',
-  source: 'local://erp-guide',
-  text: 'Production batches must be inspected before completion.',
-  metadata: <String, String>{'department': 'production'},
-));
-print('New chunks: $count');
-print('Total saved chunks: ${await sqlite.countChunks()}');
-```
-
-Here the package splits text into overlapping Unicode-safe chunks, makes
-an embedding for each chunk, then saves the chunk text, title, source,
-metadata and binary vector in SQLite. This is a durable database write.
-**No need to reindex at every startup.**
-
-#### Step 5: Search or generate an answer completely offline
-
-```dart
-// RAG retrieval needs NO loaded GGUF model.
-final found = await gpt.searchRag('batch production inspection');
-for (final hit in found.hits) {
-  print('${hit.score}: ${hit.chunk.text}');
+class MyNliVerifier implements ClaimEntailmentVerifier {
+  @override
+  Future<ClaimEntailment> verify({
+    required String claim,
+    required String passage,
+    required WebSource source,
+  }) async {
+    // Replace with your offline NLI model or controlled verification API.
+    // Only return supported if the passage entails the ENTIRE claim.
+    return ClaimEntailment.insufficientEvidence;
+  }
 }
 
-// To generate the answer, load your own locally stored GGUF model.
-await gpt.loadModel('/path/to/local-model.gguf');
-final answer = await gpt.generateText(
-  'When can the production batch be completed?',
-  useRag: true,
+final checked = await client.generateVerifiedText(
+  'Is Flutter 3.50.1 a stable release?',
+  entailmentVerifier: MyNliVerifier(),
 );
-print(answer);
-
-// After all indexing and queries are done, release the SQLite handle.
-await sqlite.close();
 ```
 
-If no relevant indexed chunks pass `minScore`, RAG returns a no-evidence
-message instead of answering from unverified old training knowledge.
-The generated prompt uses numbered references `[1]`, `[2]`, etc.
-
-#### Step 6: App restart (no second indexing required)
-
-```dart
-// Execute when the app starts again:
-final reopened = await RagSqliteVectorStore.open(
-  fileName: 'company_knowledge.db',
-  collection: 'erp_manuals',
-  embeddingModelId: 'keyword-hash-256-v1',
-);
-final rag = RagService(
-  embeddingProvider: const RagKeywordHashEmbeddingProvider(dimensions: 256),
-  vectorStore: reopened,
-);
-print(await reopened.countChunks()); // Old vectors remain saved
-final result = await rag.retrieve('batch production inspection');
-print(result.hits.map((e) => e.chunk.text).toList());
-```
-
-**বাংলায়:** App restart-এর পরে একই database reopen করবে। আগে indexed
-করা data আর embedding আবার generate করতে হবে না। দরকার হলে নতুন document
-যোগ করা যাবে; existing document ID দিয়ে re-index করলে আগের chunks replace হবে।
-
-#### Step 7: Edit, remove, or migrate saved documents
-
-```dart
-// Same document ID = replace previous chunks in one SQLite transaction.
-await rag.addDocument(const RagDocument(
-  id: 'erp-guide-01',
-  text: 'Updated ERP production process description.',
-));
-
-// Delete only one document's chunks.
-await rag.removeDocument('erp-guide-01');
-
-// DANGEROUS: wipe all chunks + embedding settings in the collection.
-await reopened.clearCollection();
-```
-
-The document replacement is transactional: if the new indexing write
-fails, the previous data is preserved. Switching to another embedding
-model or dimension requires a NEW collection name or an explicit
-`clearCollection()` followed by re-indexing.
-
-#### Internal flow — how offline persistent RAG actually works
-
-```text
-FIRST TIME (INDEX):
-Document -> Unicode chunking -> local embedding -> vectors
-         -> SQLite [collection, chunk id, document id, text, metadata, vector]
-
-EVERY USER QUESTION:
-Question -> same local embedding -> query vector -> SQLite cosine similarity
-         -> topK document chunks -> numbered evidence [1], [2], ...
-         -> local GGUF model -> grounded answer
-
-AFTER APP RESTART:
-Open same SQLite file + collection + embedding model ID
-         -> reuse saved chunks/vectors -> offline search immediately
-```
-
-SQLite stores collection metadata (embedding model ID + dimensions), and
-chunk records (text, title, source, document ID, metadata JSON, Float64
-embedding BLOB). Cosine similarities are calculated in Dart in batches.
-
-#### Privacy, compatibility, common questions
-
-- **Is internet required?** No—provided both embeddings and GGUF inference
-  run locally. Cloud embedding providers and cloud Qdrant are different.
-- **Will restart delete my vectors?** No. Normal app restarts preserve them.
-  Clearing app storage and uninstalling typically deletes the SQLite file.
-- **Is data secure?** SQLite is unencrypted by this package. Use platform
-  sandbox/storage protection and encrypted storage where appropriate.
-- **Is it fast for a million vectors?** No. Search scans local vectors.
-  Use an ANN index or Qdrant for huge corpora / advanced filtering.
-- **How to load PDF/Word/Excel?** Extract text in your host Flutter app and
-  create `RagDocument(text: ...)`. There is no built-in Office/PDF parser.
-- **Embedding mismatch?** Keep vector dimensions and `embeddingModelId`
-  identical across sessions. A mismatched model is intentionally rejected.
-- **Platforms?** Native `sqflite` supports Android/iOS/macOS. For desktop
-  (Windows/Linux) and unit tests, inject a suitable `sqflite_common_ffi`
-  DatabaseFactory; web SQLite is not configured by this PR.
-- **Are answers guaranteed factual?** No. RAG grounding helps, but it does
-  not replace independent claim-level fact verification.
-
-### 3. Qdrant vector database (optional network adapter)
-
-The Qdrant collection **must already exist** and be configured with
-an unnamed dense vector of the same size/distance type as your embedder.
-The example below assumes a separately secured Qdrant backend.
-
-```dart
-final qdrant = RagQdrantVectorStore(
-  endpoint: Uri.parse('https://YOUR-QDRANT-ENDPOINT'),
-  collection: 'company_docs',
-  // Do not hardcode production API keys in a distributed mobile app.
-);
-
-final rag = RagService(
-  embeddingProvider: RagCallbackEmbeddingProvider(
-    (text) async {
-      // Replace this with a REAL embedding model/service.
-      return yourEmbeddingService.embed(text);
-    },
-  ),
-  vectorStore: qdrant,
-);
-
-final gpt = LocalLlmClient(ragService: rag);
-await gpt.indexRagDocument(const RagDocument(
-  id: 'manual-01',
-  title: 'ERP manual',
-  source: 'internal://erp-manual',
-  text: 'Put the extracted text of your document here.',
-));
-
-await gpt.loadModel('/path/to/model.gguf');
-final answer = await gpt.ragGenerateText('Explain the ERP manual.');
-print(answer);
-
-// Dispose the remote HTTP client when the host app shuts down.
-qdrant.dispose();
-```
-
-Remote Qdrant stores send **document text, metadata and embedding vectors**
-to the server. Use consent, HTTPS, access controls and an authenticated proxy;
-an API key embedded in a mobile APK is not a safe secret. The package does
-not bundle a PDF extractor or pretrained embedding model,
-and does not automatically provision a Qdrant collection. Extract text from your PDF/Excel
-or other data sources in the host app and index that text via RagDocument.
-
-**Grounding is not fact verification.** RAG instructs the model to use
-retrieved excerpts and cite numbered references; it does not independently
-prove the response matches every cited statement. Use a separate verifier
-for high-stakes factual claims.
+**Important caveat:** Without an injected NLI verifier, the default
+second-pass judge uses the *same local GGUF model* as the generator.
+That can catch contradictions but is **not independent factual verification**.
+Even independent NLI checks cannot guarantee that a source is trustworthy,
+complete, up-to-date, or genuinely correct. `isFactChecked` indicates only
+that all source-consistency/semantic screening checks passed, not truth.
+Unsupported, contradictory, or unverifiable claims fail closed.
 
 ## ✅ How to Enable Web Search
 
@@ -2145,37 +1948,6 @@ You can use `Flutter_GPT_Engine` to build:
 
 ---
 
-## ❓ Frequently Asked Questions
-
-### Can I run a GGUF LLM offline inside a Flutter Android app?
-
-Yes. The package runs compatible GGUF language models on Android using local inference. Download or provide the model file first, load it with `LocalLlmClient`, and use `generate()` for streaming or `generateText()` for the complete result. Local inference does not require a cloud LLM API.
-
-### Does Flutter GPT Engine support offline RAG and vector databases?
-
-Yes, as an **optional feature in the RAG development branch**. `RagService` supports document chunking and retrieval with `RagInMemoryVectorStore` or a persistent `RagSqliteVectorStore`. On-device SQLite vectors can be reused after a normal app restart. See the [RAG setup guide](#-optional-rag-and-vector-database-integration).
-
-### Can I connect Qdrant or use my own embedding model?
-
-Yes. `RagQdrantVectorStore` connects to an existing Qdrant collection. `RagEmbeddingProvider` and `RagCallbackEmbeddingProvider` allow an application to supply embeddings from its own compatible model. The built-in keyword-hash provider is a **lexical demo**, not a trained semantic embedding model.
-
-### Does the package offer streaming AI chat and conversation history?
-
-Yes. It supports token streaming, chat history, configurable GGUF inference, and CPU/GPU fallback on compatible Android devices. The engine is headless; you build your own Flutter chat UI.
-
-### Is internet access or a paid AI API required?
-
-No for local GGUF inference and fully local RAG. Internet is required if you enable public web search, use cloud embeddings, or connect to an online Qdrant server. Offline RAG also requires an offline embedding provider.
-
-### Does RAG guarantee accurate or hallucination-free answers?
-
-No. Retrieved passages help ground the model's response, but do not guarantee correctness. Use source verification and appropriate human review for high-stakes information.
-
-### Which package version includes the new SQLite RAG functionality?
-
-The RAG and persistent SQLite examples here document the **unreleased** `feat/optional-rag-vector-store` branch. The currently published `0.0.12` dependency example refers to the earlier stable package and should **not** be assumed to contain these new APIs until a new version is published.
-
----
 ## 🎯 Design Philosophy
 
 The goal is simple:
