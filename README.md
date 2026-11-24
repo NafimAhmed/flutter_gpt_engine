@@ -2293,7 +2293,7 @@ No. Retrieved passages help ground the model's response, but do not guarantee co
 
 ### Which package version includes the new SQLite RAG functionality?
 
-The RAG and persistent SQLite examples reflect the source-code updates on GitHub `master`. The existing `0.0.12` pub.dev version may not include these APIs until a new package release is published. Use the Git dependency above in the meantime.
+The RAG and persistent SQLite examples reflect the source-code updates on GitHub `master`. The existing `0.0.13` pub.dev version may not include these APIs until a new package release is published. Use the Git dependency above in the meantime.
 
 ---
 ## 🎯 Design Philosophy
