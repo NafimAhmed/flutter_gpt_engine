@@ -133,3 +133,11 @@ abstract class RagVectorStore {
 
   Future<void> deleteDocument(String documentId);
 }
+
+/// Optional atomic whole-document replacement contract.
+///
+/// Implementations can replace all indexed chunks for a document in a single
+/// transaction, preventing data loss if indexing fails midway.
+abstract class RagReplaceableVectorStore implements RagVectorStore {
+  Future<void> replaceDocument(String documentId, List<RagVectorPoint> points);
+}
