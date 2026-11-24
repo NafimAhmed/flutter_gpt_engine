@@ -22,6 +22,20 @@ class WebSearchIntentDecision {
   final int score;
   final String searchQuery;
   final List<WebSearchIntentReason> reasons;
+
+  /// Current facts and explicit evidence requests must be screened before
+  /// they are shown as answers. Web search alone is NOT claim validation.
+  ///
+  /// Apps can route these queries to LocalLlmClient.generateVerifiedText()
+  /// (buffers drafts and fails closed), while continuing to stream ordinary
+  /// explanations via smartGenerate().
+  bool get requiresVerifiedAnswer => reasons.any(
+        (reason) =>
+            reason == WebSearchIntentReason.freshness ||
+            reason == WebSearchIntentReason.liveData ||
+            reason == WebSearchIntentReason.currentRole ||
+            reason == WebSearchIntentReason.evidenceRequest,
+      );
 }
 
 /// Fast, deterministic search-intent detection for [WebSearchMode.auto].
