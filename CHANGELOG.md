@@ -1,3 +1,8 @@
+## 0.0.13
+
+- RAG / Vector Database Integration option added.
+
+
 ## 0.0.12
 
 - Remove hallucination.

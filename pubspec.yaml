@@ -1,6 +1,6 @@
 name: flutter_gpt_engine
 description: Flutter package for offline GGUF LLM inference on Android with streaming chat, local RAG, SQLite vector database, optional Qdrant, and web search.
-version: 0.0.12
+version: 0.0.13
 homepage: https://github.com/NafimAhmed/flutter_gpt_engine
 repository: https://github.com/NafimAhmed/flutter_gpt_engine
 issue_tracker: https://github.com/NafimAhmed/flutter_gpt_engine/issues
@@ -31,6 +31,7 @@ dependencies:
   package_info_plus: ^8.3.1
   sensors_plus: ^6.1.2
   system_info2: ^4.1.0
+
 
 dev_dependencies:
   flutter_test:
