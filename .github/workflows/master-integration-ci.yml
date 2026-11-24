@@ -1,0 +1,44 @@
+name: Master Integration CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  package-and-example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve root package dependencies
+        run: flutter pub get
+
+      - name: Parse all combined Dart sources
+        run: dart format --output=none lib test example/lib example/test
+
+      - name: Analyze package sources and tests
+        run: flutter analyze --no-fatal-infos lib test
+
+      - name: Run all package tests
+        run: flutter test
+
+      - name: Resolve example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Analyze example app and widget test
+        working-directory: example
+        run: flutter analyze --no-fatal-infos lib test
+
+      - name: Run example widget tests
+        working-directory: example
+        run: flutter test
