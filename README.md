@@ -1,7 +1,7 @@
 
-# Flutter_GPT_Engine
+# Flutter GPT Engine — Offline GGUF LLM, RAG & Vector Search for Flutter
 
-> **Run GPT-style AI directly inside your Flutter app — locally, privately, and without depending on a cloud API.**
+> **Build on-device AI chat for Android with Flutter and local GGUF models. Add optional offline RAG, SQLite vector search, Qdrant, or public web retrieval when needed.**
 
 `Flutter_GPT_Engine` is a lightweight, **headless GGUF inference engine for Flutter** built for developers who want to run local large language models directly on Android devices.
 
@@ -13,6 +13,10 @@ No forced theme.
 No opinionated UI architecture.
 
 You build the experience. `Flutter_GPT_Engine` provides the AI engine.
+
+**Quick navigation:** [Install](#-installation) · [Load a GGUF model](#-2-let-the-user-pick-a-gguf-model) · [Streaming chat](#-5-generate-a-streaming-response) · [Offline RAG + SQLite vector database](#-optional-rag-and-vector-database-integration) · [Web search](#-how-to-enable-web-search) · [FAQ](#-frequently-asked-questions)
+
+**Platform note:** GGUF inference currently targets Android via `llama_flutter_android`. RAG/vector storage is optional, requires document text and embeddings, and does not provide a pretrained semantic embedding model.
 
 ---
 
@@ -2141,6 +2145,37 @@ You can use `Flutter_GPT_Engine` to build:
 
 ---
 
+## ❓ Frequently Asked Questions
+
+### Can I run a GGUF LLM offline inside a Flutter Android app?
+
+Yes. The package runs compatible GGUF language models on Android using local inference. Download or provide the model file first, load it with `LocalLlmClient`, and use `generate()` for streaming or `generateText()` for the complete result. Local inference does not require a cloud LLM API.
+
+### Does Flutter GPT Engine support offline RAG and vector databases?
+
+Yes, as an **optional feature in the RAG development branch**. `RagService` supports document chunking and retrieval with `RagInMemoryVectorStore` or a persistent `RagSqliteVectorStore`. On-device SQLite vectors can be reused after a normal app restart. See the [RAG setup guide](#-optional-rag-and-vector-database-integration).
+
+### Can I connect Qdrant or use my own embedding model?
+
+Yes. `RagQdrantVectorStore` connects to an existing Qdrant collection. `RagEmbeddingProvider` and `RagCallbackEmbeddingProvider` allow an application to supply embeddings from its own compatible model. The built-in keyword-hash provider is a **lexical demo**, not a trained semantic embedding model.
+
+### Does the package offer streaming AI chat and conversation history?
+
+Yes. It supports token streaming, chat history, configurable GGUF inference, and CPU/GPU fallback on compatible Android devices. The engine is headless; you build your own Flutter chat UI.
+
+### Is internet access or a paid AI API required?
+
+No for local GGUF inference and fully local RAG. Internet is required if you enable public web search, use cloud embeddings, or connect to an online Qdrant server. Offline RAG also requires an offline embedding provider.
+
+### Does RAG guarantee accurate or hallucination-free answers?
+
+No. Retrieved passages help ground the model's response, but do not guarantee correctness. Use source verification and appropriate human review for high-stakes information.
+
+### Which package version includes the new SQLite RAG functionality?
+
+The RAG and persistent SQLite examples here document the **unreleased** `feat/optional-rag-vector-store` branch. The currently published `0.0.12` dependency example refers to the earlier stable package and should **not** be assumed to contain these new APIs until a new version is published.
+
+---
 ## 🎯 Design Philosophy
 
 The goal is simple:
