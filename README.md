@@ -405,6 +405,108 @@ semantic proof or independent fact checker. A citation containing similar words
 does not guarantee the claim is true, nor does it establish source trustworthiness.
 Use an independent NLI/claim verifier plus human review for high-stakes workflows.
 
+## 📚 Optional RAG and Vector Database Integration
+
+RAG is **opt-in**: existing local generation, web search and history APIs
+still work exactly as before. Pass a RagService to LocalLlmClient to add
+a private, document-grounded retrieval path. You can use an in-memory index
+(offline and ephemeral), a Qdrant collection, or your own RagVectorStore.
+
+### 1. Offline RAG with local text documents
+
+```dart
+final rag = RagService(
+  embeddingProvider: const RagKeywordHashEmbeddingProvider(),
+  vectorStore: RagInMemoryVectorStore(),
+  config: const RagConfig(
+    chunkSize: 800,
+    chunkOverlap: 120,
+    topK: 4,
+    minScore: 0.10,
+  ),
+);
+
+final gpt = LocalLlmClient(ragService: rag);
+await gpt.loadModel('/storage/emulated/0/Download/model.gguf');
+
+await gpt.indexRagDocument(const RagDocument(
+  id: 'company-guide',
+  title: 'Employee handbook',
+  source: 'internal://handbook',
+  text: 'Employees should contact HR for leave policy questions.',
+));
+
+final answer = await gpt.generateText(
+  'Who should I contact about the leave policy?',
+  useRag: true,
+);
+print(answer);
+print(gpt.lastRagRetrievalResult?.hits.length);
+```
+
+Retrieval does not require a loaded GGUF model, but RAG *generation* does.
+If no relevant document is found, the RAG path returns an uncertainty
+message rather than guessing from the model's old training data.
+
+**Important:** RagKeywordHashEmbeddingProvider is a small word-hashing
+**lexical** baseline, not a semantic embedding model. It may miss paraphrases
+and is only suitable for experiments or simple terminology-based retrieval.
+For production use, provide a real multilingual sentence embedding model
+(on-device or via a trusted backend) through RagCallbackEmbeddingProvider
+or implement RagEmbeddingProvider yourself. Always index and query
+with the same embedding model and dimension.
+
+### 2. Qdrant vector database (optional network adapter)
+
+The Qdrant collection **must already exist** and be configured with
+an unnamed dense vector of the same size/distance type as your embedder.
+The example below assumes a separately secured Qdrant backend.
+
+```dart
+final qdrant = RagQdrantVectorStore(
+  endpoint: Uri.parse('https://YOUR-QDRANT-ENDPOINT'),
+  collection: 'company_docs',
+  // Do not hardcode production API keys in a distributed mobile app.
+);
+
+final rag = RagService(
+  embeddingProvider: RagCallbackEmbeddingProvider(
+    (text) async {
+      // Replace this with a REAL embedding model/service.
+      return yourEmbeddingService.embed(text);
+    },
+  ),
+  vectorStore: qdrant,
+);
+
+final gpt = LocalLlmClient(ragService: rag);
+await gpt.indexRagDocument(const RagDocument(
+  id: 'manual-01',
+  title: 'ERP manual',
+  source: 'internal://erp-manual',
+  text: 'Put the extracted text of your document here.',
+));
+
+await gpt.loadModel('/path/to/model.gguf');
+final answer = await gpt.ragGenerateText('Explain the ERP manual.');
+print(answer);
+
+// Dispose the remote HTTP client when the host app shuts down.
+qdrant.dispose();
+```
+
+Remote Qdrant stores send **document text, metadata and embedding vectors**
+to the server. Use consent, HTTPS, access controls and an authenticated proxy;
+an API key embedded in a mobile APK is not a safe secret. The package does
+not bundle a PDF extractor, embedding model, persistent local vector database,
+or automatically provision a Qdrant collection. Extract text from your PDF/Excel
+or other data sources in the host app and index that text via RagDocument.
+
+**Grounding is not fact verification.** RAG instructs the model to use
+retrieved excerpts and cite numbered references; it does not independently
+prove the response matches every cited statement. Use a separate verifier
+for high-stakes factual claims.
+
 ## ✅ How to Enable Web Search
 
 Web search is **optional**. Local GGUF inference still works without internet access.
