@@ -1,0 +1,25 @@
+name: Optional RAG and Vector Store CI
+
+on:
+  push:
+    branches:
+      - "feat/optional-rag-vector-store"
+  pull_request:
+
+jobs:
+  flutter-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Dart syntax check
+        run: dart format --output=none lib/src/rag_models.dart lib/src/rag_service.dart lib/src/rag_qdrant_vector_store.dart lib/src/local_llm_client.dart test/rag_service_test.dart
+      - name: Static analysis of library and tests
+        run: flutter analyze --no-fatal-infos lib test
+      - name: All package tests
+        run: flutter test
