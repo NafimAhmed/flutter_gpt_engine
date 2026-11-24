@@ -456,7 +456,218 @@ For production use, provide a real multilingual sentence embedding model
 or implement RagEmbeddingProvider yourself. Always index and query
 with the same embedding model and dimension.
 
-### 2. Qdrant vector database (optional network adapter)
+### 2. Persistent Offline RAG / SQLite Vector Database (Android-first)
+
+**বাংলায়:** `RagInMemoryVectorStore` শুধু RAM-এ vectors রাখে—app বন্ধ করলে তা হারায়।
+নতুন `RagSqliteVectorStore` device-এর private SQLite database-এ document
+text, metadata এবং embedding vector সংরক্ষণ করে। তাই app restart হলেও আগে
+indexed করা document আবার পাওয়া যাবে। Internet বা external server লাগে না।
+
+**English:** SQLite-based persistent vector storage survives normal app
+restarts. Clearing app data/uninstall removes the database. Data is *not*
+encrypted by the package. This is a small/medium-size offline vector store
+using a paged cosine-similarity scan, not an HNSW/ANN index.
+
+#### Which vector database should I use?
+
+| Store | Network? | Survives restart? | Storage |
+| --- | --- | --- | --- |
+| `RagInMemoryVectorStore` | No | No | RAM |
+| `RagSqliteVectorStore` | **No** | **Yes** | Device SQLite file |
+| `RagQdrantVectorStore` (cloud) | Yes | Yes | Remote Qdrant |
+| `RagQdrantVectorStore` (LAN) | LAN server | Yes | Local server |
+
+#### Step 1: Install this unreleased feature branch
+
+**Before PR #5 is merged and published**, use the Git branch in your
+Flutter application's `pubspec.yaml`:
+
+```yaml
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_gpt_engine:
+    git:
+      url: https://github.com/NafimAhmed/flutter_gpt_engine.git
+      ref: feat/optional-rag-vector-store
+```
+
+Run `flutter pub get`. The package includes `sqflite` and `path` internally;
+no additional direct dependency is needed for a standard Android app.
+
+#### Step 2: Open the SQLite store (first run or subsequent restart)
+
+```dart
+import 'package:flutter_gpt_engine/flutter_gpt_engine.dart';
+
+final sqlite = await RagSqliteVectorStore.open(
+  fileName: 'company_knowledge.db',
+  collection: 'erp_manuals',
+  embeddingModelId: 'keyword-hash-256-v1',
+);
+
+print(sqlite.databasePath); // App's local database file
+print(await sqlite.countChunks()); // Saved chunks, including past sessions
+```
+
+On Android the database is saved in the private app SQLite databases
+directory. Reuse exactly the same fileName, collection, and embeddingModelId
+when reopening the app. You may also pass an absolute `databasePath`.
+
+#### Step 3: Choose an offline embedding provider and configure RAG
+
+```dart
+final rag = RagService(
+  embeddingProvider: const RagKeywordHashEmbeddingProvider(dimensions: 256),
+  vectorStore: sqlite,
+  config: const RagConfig(
+    chunkSize: 800,
+    chunkOverlap: 120,
+    topK: 4,
+    minScore: 0.10,
+    maxContextCharacters: 6000,
+  ),
+);
+
+final gpt = LocalLlmClient(ragService: rag);
+```
+
+**Important:** `RagKeywordHashEmbeddingProvider` is an offline lexical
+hashing demonstration—not a semantic embedding model. For semantic retrieval
+provide a real multilingual offline embedding model through
+`RagEmbeddingProvider` or `RagCallbackEmbeddingProvider`. Keep the embedding
+model, vector size and `embeddingModelId` the same for indexing and querying.
+An online embedding API makes that part of the flow online.
+
+#### Step 4: Index your documents (once, or when changed)
+
+```dart
+final count = await gpt.indexRagDocument(const RagDocument(
+  id: 'erp-guide-01',
+  title: 'ERP Production Manual',
+  source: 'local://erp-guide',
+  text: 'Production batches must be inspected before completion.',
+  metadata: <String, String>{'department': 'production'},
+));
+print('New chunks: $count');
+print('Total saved chunks: ${await sqlite.countChunks()}');
+```
+
+Here the package splits text into overlapping Unicode-safe chunks, makes
+an embedding for each chunk, then saves the chunk text, title, source,
+metadata and binary vector in SQLite. This is a durable database write.
+**No need to reindex at every startup.**
+
+#### Step 5: Search or generate an answer completely offline
+
+```dart
+// RAG retrieval needs NO loaded GGUF model.
+final found = await gpt.searchRag('batch production inspection');
+for (final hit in found.hits) {
+  print('${hit.score}: ${hit.chunk.text}');
+}
+
+// To generate the answer, load your own locally stored GGUF model.
+await gpt.loadModel('/path/to/local-model.gguf');
+final answer = await gpt.generateText(
+  'When can the production batch be completed?',
+  useRag: true,
+);
+print(answer);
+
+// After all indexing and queries are done, release the SQLite handle.
+await sqlite.close();
+```
+
+If no relevant indexed chunks pass `minScore`, RAG returns a no-evidence
+message instead of answering from unverified old training knowledge.
+The generated prompt uses numbered references `[1]`, `[2]`, etc.
+
+#### Step 6: App restart (no second indexing required)
+
+```dart
+// Execute when the app starts again:
+final reopened = await RagSqliteVectorStore.open(
+  fileName: 'company_knowledge.db',
+  collection: 'erp_manuals',
+  embeddingModelId: 'keyword-hash-256-v1',
+);
+final rag = RagService(
+  embeddingProvider: const RagKeywordHashEmbeddingProvider(dimensions: 256),
+  vectorStore: reopened,
+);
+print(await reopened.countChunks()); // Old vectors remain saved
+final result = await rag.retrieve('batch production inspection');
+print(result.hits.map((e) => e.chunk.text).toList());
+```
+
+**বাংলায়:** App restart-এর পরে একই database reopen করবে। আগে indexed
+করা data আর embedding আবার generate করতে হবে না। দরকার হলে নতুন document
+যোগ করা যাবে; existing document ID দিয়ে re-index করলে আগের chunks replace হবে।
+
+#### Step 7: Edit, remove, or migrate saved documents
+
+```dart
+// Same document ID = replace previous chunks in one SQLite transaction.
+await rag.addDocument(const RagDocument(
+  id: 'erp-guide-01',
+  text: 'Updated ERP production process description.',
+));
+
+// Delete only one document's chunks.
+await rag.removeDocument('erp-guide-01');
+
+// DANGEROUS: wipe all chunks + embedding settings in the collection.
+await reopened.clearCollection();
+```
+
+The document replacement is transactional: if the new indexing write
+fails, the previous data is preserved. Switching to another embedding
+model or dimension requires a NEW collection name or an explicit
+`clearCollection()` followed by re-indexing.
+
+#### Internal flow — how offline persistent RAG actually works
+
+```text
+FIRST TIME (INDEX):
+Document -> Unicode chunking -> local embedding -> vectors
+         -> SQLite [collection, chunk id, document id, text, metadata, vector]
+
+EVERY USER QUESTION:
+Question -> same local embedding -> query vector -> SQLite cosine similarity
+         -> topK document chunks -> numbered evidence [1], [2], ...
+         -> local GGUF model -> grounded answer
+
+AFTER APP RESTART:
+Open same SQLite file + collection + embedding model ID
+         -> reuse saved chunks/vectors -> offline search immediately
+```
+
+SQLite stores collection metadata (embedding model ID + dimensions), and
+chunk records (text, title, source, document ID, metadata JSON, Float64
+embedding BLOB). Cosine similarities are calculated in Dart in batches.
+
+#### Privacy, compatibility, common questions
+
+- **Is internet required?** No—provided both embeddings and GGUF inference
+  run locally. Cloud embedding providers and cloud Qdrant are different.
+- **Will restart delete my vectors?** No. Normal app restarts preserve them.
+  Clearing app storage and uninstalling typically deletes the SQLite file.
+- **Is data secure?** SQLite is unencrypted by this package. Use platform
+  sandbox/storage protection and encrypted storage where appropriate.
+- **Is it fast for a million vectors?** No. Search scans local vectors.
+  Use an ANN index or Qdrant for huge corpora / advanced filtering.
+- **How to load PDF/Word/Excel?** Extract text in your host Flutter app and
+  create `RagDocument(text: ...)`. There is no built-in Office/PDF parser.
+- **Embedding mismatch?** Keep vector dimensions and `embeddingModelId`
+  identical across sessions. A mismatched model is intentionally rejected.
+- **Platforms?** Native `sqflite` supports Android/iOS/macOS. For desktop
+  (Windows/Linux) and unit tests, inject a suitable `sqflite_common_ffi`
+  DatabaseFactory; web SQLite is not configured by this PR.
+- **Are answers guaranteed factual?** No. RAG grounding helps, but it does
+  not replace independent claim-level fact verification.
+
+### 3. Qdrant vector database (optional network adapter)
 
 The Qdrant collection **must already exist** and be configured with
 an unnamed dense vector of the same size/distance type as your embedder.
@@ -498,8 +709,8 @@ qdrant.dispose();
 Remote Qdrant stores send **document text, metadata and embedding vectors**
 to the server. Use consent, HTTPS, access controls and an authenticated proxy;
 an API key embedded in a mobile APK is not a safe secret. The package does
-not bundle a PDF extractor, embedding model, persistent local vector database,
-or automatically provision a Qdrant collection. Extract text from your PDF/Excel
+not bundle a PDF extractor or pretrained embedding model,
+and does not automatically provision a Qdrant collection. Extract text from your PDF/Excel
 or other data sources in the host app and index that text via RagDocument.
 
 **Grounding is not fact verification.** RAG instructs the model to use
