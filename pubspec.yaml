@@ -1,7 +1,16 @@
 name: flutter_gpt_engine
-description: Headless Flutter package for running GGUF LLMs locally on Android with streaming, conversation history, web search, device context, thinking support, benchmarking, and CPU/GPU auto-tuning.
+description: Flutter package for offline GGUF LLM inference on Android with streaming chat, local RAG, SQLite vector database, optional Qdrant, and web search.
 version: 0.0.12
 homepage: https://github.com/NafimAhmed/flutter_gpt_engine
+repository: https://github.com/NafimAhmed/flutter_gpt_engine
+issue_tracker: https://github.com/NafimAhmed/flutter_gpt_engine/issues
+documentation: https://github.com/NafimAhmed/flutter_gpt_engine#readme
+topics:
+  - flutter
+  - gguf
+  - llm
+  - rag
+  - vector-database
 
 environment:
   sdk: ^3.13.2
