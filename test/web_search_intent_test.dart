@@ -17,6 +17,32 @@ void main() {
       );
     });
 
+    test('routes latest Flutter version to verified generation', () {
+      final decision = analyzer.analyze('latest flutter version in 2026');
+      expect(decision.shouldSearch, isTrue);
+      expect(decision.requiresVerifiedAnswer, isTrue);
+    });
+
+    test('routes Bengali and Banglish current facts to verification', () {
+      final bengali = analyzer.analyze('আজকের সোনার দাম কত?');
+      final banglish = analyzer.analyze('Flutter er version koto?');
+      expect(bengali.requiresVerifiedAnswer, isTrue);
+      expect(banglish.requiresVerifiedAnswer, isTrue);
+    });
+
+    test('does not require verification for static version control help', () {
+      final decision = analyzer.analyze('Explain version control');
+      expect(decision.requiresVerifiedAnswer, isFalse);
+    });
+
+    test('does not force verification for ordinary shopping preferences', () {
+      final decision = analyzer.analyze(
+        'Best WiFi printer under 20000 BDT?',
+      );
+      expect(decision.shouldSearch, isTrue);
+      expect(decision.requiresVerifiedAnswer, isFalse);
+    });
+
     test('searches current role questions', () {
       final decision = analyzer.analyze('Who is the CEO of OpenAI?');
 

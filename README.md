@@ -405,6 +405,126 @@ semantic proof or independent fact checker. A citation containing similar words
 does not guarantee the claim is true, nor does it establish source trustworthiness.
 Use an independent NLI/claim verifier plus human review for high-stakes workflows.
 
+## 🔎 Per-Claim Fact Verification & Citation-to-Source Validation
+
+Use the new opt-in `generateVerifiedText()` API for **claim-by-claim** verification
+before a generated response is shown. It first runs the existing deterministic
+hallucination guard, then checks every numbered citation against the actual
+source text and asks a semantic entailment verifier to judge the cited passage.
+
+```dart
+final client = LocalLlmClient(
+  webSearchConfig: const WebSearchConfig(enabled: true),
+);
+await client.loadModel('/storage/emulated/0/Download/model.gguf');
+
+final result = await client.generateVerifiedText(
+  'What is the latest stable Flutter version?',
+  guardConfig: const HallucinationGuardConfig(
+    maxCorrectionAttempts: 2,
+  ),
+);
+
+print(result.answer);
+print(result.isFactChecked); // semantic screening supported every claim
+print(result.claimReport?.supportedClaims);
+print(result.claimReport?.contradictedClaims);
+print(result.claimReport?.unverifiedClaims);
+
+for (final claim in result.claimReport?.claims ?? <FactClaimVerification>[]) {
+  print(claim.claim);
+  print(claim.status);
+  for (final citation in claim.citations) {
+    print(citation.sourceUrl);
+    print(citation.passage);
+    print(citation.status);
+  }
+}
+```
+
+**Automatic behavior:** Sources are retrieved, a private draft is generated,
+claims and citations are checked, and unsupported claims trigger another
+generation attempt. If verification still fails, the original draft is
+withheld and an uncertainty message is returned. The normal `generate()`
+and `smartGenerate()` methods are unchanged.
+
+### Prevent wrong current-version answers in the example chat UI
+
+The example app now routes time-sensitive or evidence-requiring prompts
+(such as `latest flutter version in 2026`, current prices, current roles
+and explicitly requested citations) to `generateVerifiedText()` instead
+of showing unverified tokens from `smartGenerate()`.
+
+```dart
+final intent = const WebSearchIntentAnalyzer().analyze(question);
+
+if (intent.requiresVerifiedAnswer) {
+  final verified = await gpt.generateVerifiedText(
+    question,
+    guardConfig: const HallucinationGuardConfig(
+      maxCorrectionAttempts: 2,
+    ),
+  );
+  // Only display verified.answer after the verification method finishes.
+  // When verification fails, verified.answer is a safe uncertainty message.
+  print(verified.answer);
+  print(verified.status);
+  print(verified.isFactChecked);
+} else {
+  await for (final token in gpt.smartGenerate(
+    question,
+    searchMode: WebSearchMode.auto,
+  )) {
+    print(token);
+  }
+}
+```
+
+**Why this matters:** `WebSearchMode.auto` decides when to fetch public
+information, but it does not independently validate the final model answer.
+`fallbackOnLocalFailure` also cannot reliably catch a confidently wrong
+version or release date. Verified generation buffers drafts and fails closed
+if source/citation validation remains insufficient. Verify the actual web
+sources and avoid pretending this is a guarantee of factual truth.
+
+**Model limitation:** For the bundled example using an ultra-small
+0.5B IQ2_M GGUF model, the default second-pass NLI judge is the **same**
+small model, not an independent fact checker. It may fail to understand
+even correct evidence and therefore return an uncertainty response.
+For stronger results, inject an independent NLI verifier and/or use
+a more capable model, then evaluate it against known-answer tests.
+
+**Provide an independent verifier:** Implement `ClaimEntailmentVerifier`
+and pass it as `entailmentVerifier` to `generateVerifiedText()`.
+
+```dart
+class MyNliVerifier implements ClaimEntailmentVerifier {
+  @override
+  Future<ClaimEntailment> verify({
+    required String claim,
+    required String passage,
+    required WebSource source,
+  }) async {
+    // Replace with your offline NLI model or controlled verification API.
+    // Only return supported if the passage entails the ENTIRE claim.
+    return ClaimEntailment.insufficientEvidence;
+  }
+}
+
+final checked = await client.generateVerifiedText(
+  'Is Flutter 3.50.1 a stable release?',
+  entailmentVerifier: MyNliVerifier(),
+);
+```
+
+**Important caveat:** Without an injected NLI verifier, the default
+second-pass judge uses the *same local GGUF model* as the generator.
+That can catch contradictions but is **not independent factual verification**.
+Even independent NLI checks cannot guarantee that a source is trustworthy,
+complete, up-to-date, or genuinely correct. `isFactChecked` indicates only
+that all source-consistency/semantic screening checks passed, not truth.
+Unsupported, contradictory, or unverifiable claims fail closed.
+
 ## ✅ How to Enable Web Search
 
 Web search is **optional**. Local GGUF inference still works without internet access.

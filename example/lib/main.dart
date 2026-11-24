@@ -585,33 +585,41 @@ ANSWER STYLE:
 
     try {
       // ========================================================
-      // SMART GENERATE
+      // VERIFY CURRENT FACTS BEFORE SHOWING AN ANSWER.
       // ========================================================
+      // The 0.5B local model may sound certain even when its answer is wrong.
+      // WebSearchMode.auto only decides whether to retrieve sources; it
+      // does NOT validate the factual claims in a generated answer.
+      final decision = const WebSearchIntentAnalyzer().analyze(text);
 
-      await for (final String _ in _gpt.smartGenerate(
-        text,
+      if (decision.requiresVerifiedAnswer) {
+        // Web evidence is mandatory. Drafts stay hidden, claim/citation
+        // checks run, and unsupported answers trigger correction retries.
+        // If sources or checks fail, a safe "not verified" message is shown.
+        final result = await _gpt.generateVerifiedText(
+          text,
+          systemPrompt: _runtimeSystemPrompt,
+          guardConfig: const HallucinationGuardConfig(
+            maxCorrectionAttempts: 2,
+          ),
+        );
 
-        // IMPORTANT:
-        // This is rebuilt EVERY message,
-        // therefore Date/Time is always current.
-        systemPrompt: _runtimeSystemPrompt,
-
-        // Realtime Think
-        showThinking: true,
-
-        // Local model fail করলে web fallback
-        fallbackOnLocalFailure: true,
-
-        // Latest/current/etc -> auto web search
-        searchMode: WebSearchMode.auto,
-      )) {
-        // No UI work required here.
-        //
-        // generationEvents listener handles:
-        // thinking
-        // searchingWeb
-        // answer
-        // done
+        debugPrint(
+          'Verified generation: ${result.status.name}; '
+          'claim checks passed: ${result.isFactChecked}; '
+          'source count: ${result.webResult.sources.length}',
+        );
+      } else {
+        // Keep the fast streaming chat experience for non-current questions.
+        await for (final String _ in _gpt.smartGenerate(
+          text,
+          systemPrompt: _runtimeSystemPrompt,
+          showThinking: true,
+          fallbackOnLocalFailure: true,
+          searchMode: WebSearchMode.auto,
+        )) {
+          // generationEvents listener updates the chat UI.
+        }
       }
 
       if (!mounted) {
