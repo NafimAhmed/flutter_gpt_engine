@@ -227,7 +227,7 @@ class HallucinationGuard {
 
   static bool _containsLiteral(String text, String literal) {
     final pattern = RegExp(
-      r'(?<![0-9.])' + RegExp.escape(literal.toLowerCase()) + r'(?![0-9.])',
+      r'(?<![0-9.])' + RegExp.escape(literal.toLowerCase()) + r'(?![0-9]|\.[0-9])',
     );
     return pattern.hasMatch(text);
   }
