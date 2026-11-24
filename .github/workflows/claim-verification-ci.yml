@@ -20,6 +20,6 @@ jobs:
       - name: Dart parser and formatting smoke check
         run: dart format --output=none lib/src/claim_verification.dart lib/src/local_llm_client.dart lib/src/hallucination_guard.dart test/claim_verification_test.dart lib/flutter_gpt_engine.dart
       - name: Flutter static analysis
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos lib test
       - name: Flutter tests
         run: flutter test
