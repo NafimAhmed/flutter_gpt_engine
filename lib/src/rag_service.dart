@@ -144,9 +144,15 @@ class RagService {
       points.add(RagVectorPoint(chunk: chunk, vector: embedding));
     }
 
-    // Remove old chunks when replacing an existing document with fewer parts.
-    await vectorStore.deleteDocument(document.id);
-    await vectorStore.upsert(points);
+    // Persistent stores can replace all chunks atomically. Legacy stores
+    // retain their existing delete-then-upsert behavior.
+    final store = vectorStore;
+    if (store is RagReplaceableVectorStore) {
+      await store.replaceDocument(document.id, points);
+    } else {
+      await store.deleteDocument(document.id);
+      await store.upsert(points);
+    }
     return points.length;
   }
 
