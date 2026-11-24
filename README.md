@@ -448,6 +448,52 @@ generation attempt. If verification still fails, the original draft is
 withheld and an uncertainty message is returned. The normal `generate()`
 and `smartGenerate()` methods are unchanged.
 
+### Prevent wrong current-version answers in the example chat UI
+
+The example app now routes time-sensitive or evidence-requiring prompts
+(such as `latest flutter version in 2026`, current prices, current roles
+and explicitly requested citations) to `generateVerifiedText()` instead
+of showing unverified tokens from `smartGenerate()`.
+
+```dart
+final intent = const WebSearchIntentAnalyzer().analyze(question);
+
+if (intent.requiresVerifiedAnswer) {
+  final verified = await gpt.generateVerifiedText(
+    question,
+    guardConfig: const HallucinationGuardConfig(
+      maxCorrectionAttempts: 2,
+    ),
+  );
+  // Only display verified.answer after the verification method finishes.
+  // When verification fails, verified.answer is a safe uncertainty message.
+  print(verified.answer);
+  print(verified.status);
+  print(verified.isFactChecked);
+} else {
+  await for (final token in gpt.smartGenerate(
+    question,
+    searchMode: WebSearchMode.auto,
+  )) {
+    print(token);
+  }
+}
+```
+
+**Why this matters:** `WebSearchMode.auto` decides when to fetch public
+information, but it does not independently validate the final model answer.
+`fallbackOnLocalFailure` also cannot reliably catch a confidently wrong
+version or release date. Verified generation buffers drafts and fails closed
+if source/citation validation remains insufficient. Verify the actual web
+sources and avoid pretending this is a guarantee of factual truth.
+
+**Model limitation:** For the bundled example using an ultra-small
+0.5B IQ2_M GGUF model, the default second-pass NLI judge is the **same**
+small model, not an independent fact checker. It may fail to understand
+even correct evidence and therefore return an uncertainty response.
+For stronger results, inject an independent NLI verifier and/or use
+a more capable model, then evaluate it against known-answer tests.
+
 **Provide an independent verifier:** Implement `ClaimEntailmentVerifier`
 and pass it as `entailmentVerifier` to `generateVerifiedText()`.
 
