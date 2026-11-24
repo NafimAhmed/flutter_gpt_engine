@@ -41,7 +41,7 @@ void main() {
     );
     try {
       expect(
-        client.indexRagDocument(
+        () => client.indexRagDocument(
           const RagDocument(id: 'x', text: 'Document'),
         ),
         throwsStateError,
