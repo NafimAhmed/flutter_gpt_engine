@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_gpt_engine/flutter_gpt_engine.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   test('LocalLlmClient exposes optional RAG indexing and retrieval', () async {
     final store = RagInMemoryVectorStore();
     final service = RagService(
