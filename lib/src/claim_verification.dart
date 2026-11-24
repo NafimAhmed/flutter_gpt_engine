@@ -215,7 +215,7 @@ class ClaimVerificationEngine {
 
   static bool _containsNumber(String text, String number) =>
       RegExp(r'(?<![0-9.])' + RegExp.escape(number) +
-          r'(?![0-9.])').hasMatch(text);
+          r'(?![0-9]|\.[0-9])').hasMatch(text);
 
   static Set<String> _terms(String value) =>
       RegExp(r'[a-zA-Z\u0980-\u09FF]{3,}', unicode: true)
