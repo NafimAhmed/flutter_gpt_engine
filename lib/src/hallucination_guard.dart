@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'web_search_models.dart';
+import 'claim_verification.dart';
 
 /// A source-consistency check is not a guarantee of truth or entailment.
 enum HallucinationIssueType {
@@ -64,12 +65,18 @@ class ProtectedAnswerResult {
     required this.audit,
     required this.attempts,
     required this.webResult,
+    this.claimReport,
   });
   final String answer;
   final ProtectedAnswerStatus status;
   final HallucinationAudit audit;
   final int attempts;
   final WebSearchResult webResult;
+  final ClaimVerificationReport? claimReport;
+
+  /// True only if the optional semantic verifier supported every claim.
+  bool get isFactChecked => claimReport?.passed ?? false;
+
   bool get hasEvidenceMatch =>
       status == ProtectedAnswerStatus.evidenceMatched;
 }
